@@ -3,7 +3,7 @@
 `device_limit` принадлежит аккаунту — приобретённой объединённой подписке. Значение `3` означает три устройства для всех её частей вместе. Один HWID получает MAIN и CDN и занимает один слот. Другая покупка имеет собственный аккаунт и отдельные слоты.
 
 ```http
-PATCH /api/v1/accounts/oleg
+PATCH /api/v1/accounts/test-account
 Authorization: Bearer <BACKEND_API_KEY>
 Content-Type: application/json
 

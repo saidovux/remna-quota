@@ -140,7 +140,7 @@ func TestPutIdempotentPreservesRemoteUsageAndToken(t *testing.T) {
 
 func TestWebsiteUsernameWithPartSuffixFitsPanelContract(t *testing.T) {
 	s, p, req := setupService(t)
-	req.Username = "fvpn_" + strings.Repeat("a", 24)
+	req.Username = "site_" + strings.Repeat("a", 24)
 	b := mustPut(t, s, req)
 	if len(b.Parts[0].Username) != 34 || b.Parts[0].Username != req.Username+"_main" {
 		t.Fatal("site-generated username not preserved")

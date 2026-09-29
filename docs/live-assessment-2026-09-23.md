@@ -12,9 +12,9 @@ Remnawave 3.4.3 поддерживает нужную схему. Проверк
 
 | Компонент | Результат |
 | --- | --- |
-| Панель `renderdockpanel.pxoxq.xyz` | Remnawave 3.4.3, build 222; контейнеры панели, PostgreSQL, Redis и subscription page работоспособны |
-| Нативные подписки `accountrd.pxoxq.xyz` | Обслуживаются существующим subscription page; маршрут нового `/sub/*` в Caddy отсутствует |
-| Сайт `futcinvpn.pxoxq.xyz` | Go API и worker, SuperTokens, PostgreSQL, Caddy; `/api/health` успешен |
+| Панель `panel.example.com` | Remnawave 3.4.3, build 222; контейнеры панели, PostgreSQL, Redis и subscription page работоспособны |
+| Нативные подписки `sub.example.com` | Обслуживаются существующим subscription page; маршрут нового `/sub/*` в Caddy отсутствует |
+| Сайт `site.example.com` | Go API и worker, SuperTokens, PostgreSQL, Caddy; `/api/health` успешен |
 | MAIN | Сквад `DIRECT`, две привязки инбаундов: VLESS TCP/Reality и VLESS XHTTP |
 | CDN | Сквад `CDN`, отдельная привязка VLESS XHTTP |
 | Ноды | Две, подключены и включены на момент обследования |
@@ -36,7 +36,7 @@ Remnawave 3.4.3 поддерживает нужную схему. Проверк
 
 ## Почему сайт пока не показывает две независимые подписки
 
-Обследован активный код `/opt/futcinvpn/backend`, а не архивные релизы. Для анализа локально сохранена выборка исходников в исключённый из Git каталог `tmp/futcinvpn-baseline`; это не полная резервная копия сервера.
+Обследован активный код `/opt/site/backend`, а не архивные релизы. Для анализа локально сохранена выборка исходников в исключённый из Git каталог `tmp/site-baseline`; это не полная резервная копия сервера.
 
 | Файл сайта | Текущее поведение | Изменение для подключения |
 | --- | --- | --- |
