@@ -35,7 +35,21 @@ jobs:
       - name: Format check
         run: test -z "$(gofmt -l .)"
       - name: Test
-        run: go test -race ./...
+        id: test
+        continue-on-error: true
+        run: go test -race ./... 2>&1 | tee /tmp/test.log
+      - name: Test failed summary
+        if: steps.test.outcome == 'failure'
+        run: |
+          {
+            echo '### go test -race failed'
+            echo '```'
+            tail -150 /tmp/test.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail on test failure
+        if: steps.test.outcome == 'failure'
+        run: exit 1
       - name: Vet
         run: go vet ./...
       - name: Build
