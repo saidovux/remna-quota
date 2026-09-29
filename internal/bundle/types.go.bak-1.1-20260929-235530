@@ -1,0 +1,167 @@
+// Package bundle models independently enforced subscriptions behind one account.
+// It has no dependency on a specific VPN panel, HTTP API, or database driver.
+package bundle
+
+import (
+	"context"
+	"errors"
+	"time"
+)
+
+var (
+	ErrNotFound       = errors.New("bundle not found")
+	ErrConflict       = errors.New("bundle conflicts with an existing account")
+	ErrInvalid        = errors.New("invalid bundle")
+	ErrUnavailable    = errors.New("subscription provider unavailable")
+	ErrProviderAccess = errors.New("subscription provider access denied")
+	ErrRevision       = errors.New("account revision conflict")
+	ErrBusy           = errors.New("account operation in progress")
+	ErrAccounting     = errors.New("inconsistent provider traffic counters")
+	ErrHWIDRequired   = errors.New("valid device HWID required")
+	ErrDeviceLimit    = errors.New("shared device limit reached")
+)
+
+type PutRequest struct {
+	DeviceLimit      *int          `json:"device_limit,omitempty"`
+	Name             string        `json:"name"`
+	ExternalRef      string        `json:"external_ref"`
+	ExpectedRevision *int64        `json:"expected_revision,omitempty"`
+	Username         string        `json:"username"`
+	Enabled          bool          `json:"enabled"`
+	Parts            []PartRequest `json:"parts"`
+}
+
+type PartRequest struct {
+	Key           string    `json:"key"`
+	Label         string    `json:"label"`
+	Provider      string    `json:"provider"`
+	Profile       string    `json:"profile"`
+	LimitBytes    int64     `json:"limit_bytes"` // Zero means unlimited.
+	ExpiresAt     time.Time `json:"expires_at"`
+	Enabled       bool      `json:"enabled"`
+	ResetStrategy string    `json:"reset_strategy"`
+}
+
+type Bundle struct {
+	DeviceLimit    *int       `json:"device_limit,omitempty"`
+	Devices        []Device   `json:"devices,omitempty"`
+	NextSyncAt     time.Time  `json:"next_sync_at"`
+	NextRetryAt    *time.Time `json:"next_retry_at,omitempty"`
+	RetryNotBefore *time.Time `json:"retry_not_before,omitempty"`
+	FailureCount   int        `json:"failure_count"`
+	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty"`
+	Name           string     `json:"name"`
+	ExternalRef    string     `json:"external_ref"`
+	ID             string     `json:"id"`
+	Username       string     `json:"username"`
+	Enabled        bool       `json:"enabled"`
+	Token          string     `json:"-"`
+	TokenHash      string     `json:"-"`
+	Parts          []Part     `json:"parts"`
+	Revision       int64      `json:"revision"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+}
+
+type Part struct {
+	ObservedAt       *time.Time `json:"observed_at,omitempty"`
+	AppliedRevision  int64      `json:"applied_revision"`
+	AccountingStatus string     `json:"accounting_status"`
+	PartRequest
+	Username   string        `json:"username"`
+	Remote     *Remote       `json:"remote,omitempty"`
+	SyncStatus string        `json:"sync_status"`          // pending, ready, error
+	LastError  string        `json:"last_error,omitempty"` // Sanitized machine code only.
+	SyncedAt   *time.Time    `json:"synced_at,omitempty"`
+	Traffic    *TrafficState `json:"traffic,omitempty"`
+}
+
+type Remote struct {
+	ID                 string     `json:"id"`
+	Username           string     `json:"username"`
+	Status             string     `json:"status"`
+	UsedBytes          int64      `json:"used_bytes"`
+	LimitBytes         int64      `json:"limit_bytes"`
+	ExpiresAt          time.Time  `json:"expires_at"`
+	LastTrafficResetAt *time.Time `json:"last_traffic_reset_at,omitempty"`
+	LifetimeUsedBytes  *int64     `json:"lifetime_used_bytes,omitempty"`
+}
+
+// TrafficState accounts for observed bytes independently per remote user. With
+// NO_RESET, a provider counter reset/recreation must not replenish the package.
+type TrafficState struct {
+	UsedBytes          int64      `json:"used_bytes"`
+	ObservedTotalBytes int64      `json:"observed_total_bytes"`
+	RemoteID           string     `json:"remote_id"`
+	RemoteUsedBytes    int64      `json:"remote_used_bytes"`
+	LastResetAt        *time.Time `json:"last_reset_at,omitempty"`
+	CounterResets      int64      `json:"counter_resets"`
+	AppliedLimitBytes  int64      `json:"applied_limit_bytes"`
+	LifetimeUsedBytes  *int64     `json:"lifetime_used_bytes,omitempty"`
+}
+
+type ListOptions struct {
+	Limit                      int
+	After, Search, ExternalRef string
+	Enabled                    *bool
+}
+type PatchRequest struct {
+	DeviceLimit      *int    `json:"device_limit,omitempty"`
+	Name             *string `json:"name,omitempty"`
+	ExternalRef      *string `json:"external_ref,omitempty"`
+	Enabled          *bool   `json:"enabled,omitempty"`
+	ExpectedRevision *int64  `json:"expected_revision,omitempty"`
+}
+
+type ProfileCatalog interface{ Profiles() []string }
+type ProviderInfo struct {
+	SharedDeviceLimit bool     `json:"shared_device_limit"`
+	ID                string   `json:"id"`
+	Profiles          []string `json:"profiles"`
+}
+
+// Provider must enforce limits and expiration independently for every part.
+// Ensure is idempotent; owner is a stable bundle ID. A matching username alone
+// never authorizes taking control of an existing user: ownership must be verified.
+// Disabling must not reset traffic. Limits and renewal also preserve usage.
+// Adapters with resettable native counters must apply EnforcementPart to the
+// current snapshot before writing limits; return the native snapshot unchanged.
+type Provider interface {
+	Ensure(context.Context, string, Part) (Remote, error)
+	Read(context.Context, string) (Remote, error)
+	Links(context.Context, string) ([]string, error)
+}
+
+// ObservingProvider saves verified snapshots before/after remote mutations,
+// including when a subsequent request fails. An observer error stops mutation.
+type ObservingProvider interface {
+	EnsureObserved(context.Context, string, Part, func(Remote) error) (Remote, error)
+}
+
+type RetryError struct {
+	At          time.Time
+	RateLimited bool
+}
+
+func (e *RetryError) Error() string { return "provider requested retry" }
+func (e *RetryError) Unwrap() error { return ErrUnavailable }
+
+// Validator rejects unsupported local settings before they become durable intent.
+// It performs no network requests. Implementing it is optional for providers.
+type Validator interface {
+	Validate(PartRequest) error
+}
+
+// Repository.Update serializes a bundle across all service replicas. The callback
+// receives a zero Bundle for a missing ID. Returning an error rolls back changes.
+// Callbacks are invoked exactly once and MUST NOT perform network operations.
+type Repository interface {
+	Update(context.Context, string, func(*Bundle) error) (Bundle, error)
+	Get(context.Context, string) (Bundle, error)
+	ByTokenHash(context.Context, string) (Bundle, error)
+	ListIDs(context.Context) ([]string, error)
+	List(context.Context, ListOptions) ([]Bundle, error)
+	Ping(context.Context) error
+	AcquireOperation(context.Context, string) (func(), error)
+	ListDue(context.Context, time.Time, string, int) ([]string, error)
+}

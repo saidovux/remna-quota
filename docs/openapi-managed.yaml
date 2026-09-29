@@ -1,0 +1,521 @@
+openapi: 3.1.0
+info:
+  title: Remna Quota Managed Subscriptions API
+  version: 1.2.0
+  description: |
+    Creates users, synchronizes independent quotas and combines subscriptions.
+    Enabled by default. Read-only reference aggregation is documented separately
+    in openapi-aggregation.yaml.
+    Provider-independent subscription bundles. Each part has its own provider
+    user, traffic counter, expiration and enforced limit. Zero limit is unlimited.
+    Administrative endpoints are called by any trusted application backend; do not
+    expose the API key to browsers. Public subscription URLs are bearer secrets.
+    Responses are never cacheable. No combined traffic total is fabricated.
+    Writes wait up to five seconds; pending work continues after HTTP cancellation.
+    Retries and Retry-After deadlines survive restarts. Remnawave measures and
+    enforces traffic; no modified node or Xray core is required.
+security:
+  - bearerAuth: []
+paths:
+  /api/v1/diagnostics:
+    get:
+      operationId: diagnostics
+      description: Managed-account storage and process diagnostics. No provider calls or user secrets. Requires managed accounts enabled.
+      responses:
+        '200':
+          description: Current diagnostics; process counters reset on restart, storage gauges span replicas.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Diagnostics' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/metrics:
+    get:
+      operationId: metrics
+      description: Same diagnostics in Prometheus text format. Bearer authentication required; no account labels. Requires managed accounts enabled.
+      responses:
+        '200':
+          description: Queue, accounting and observation gauges; sync and provider call/error/duration counters.
+          content:
+            text/plain:
+              schema: { type: string }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/capabilities:
+    get:
+      operationId: capabilities
+      responses:
+        '200':
+          description: Available adapters and configured managed profile names.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Capabilities' }
+        '401': { $ref: '#/components/responses/Error' }
+  /api/v1/accounts:
+    get:
+      operationId: listAccounts
+      description: Stored snapshots ordered by ID, without upstream refresh. Keep the same filters when following next_cursor.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 2048 }
+        - name: search
+          in: query
+          description: Case-sensitive username prefix.
+          schema: { type: string, maxLength: 34 }
+        - name: external_ref
+          in: query
+          schema: { type: string, maxLength: 128 }
+        - name: enabled
+          in: query
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: A page of accounts. Empty next_cursor marks the end.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Account' } }
+                  next_cursor: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+  /healthz:
+    get:
+      operationId: liveness
+      security: []
+      responses:
+        '200':
+          description: Process is alive.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /readyz:
+    get:
+      operationId: readiness
+      security: []
+      description: Checks the local repository, not provider availability.
+      responses:
+        '200':
+          description: Repository is available.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/accounts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    patch:
+      operationId: patchAccount
+      description: Update account metadata or enablement. At least one mutable field is required. Disabling propagates to its provider users.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PatchAccount' }
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '202': { $ref: '#/components/responses/PendingAccount' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+    get:
+      operationId: getAccount
+      description: |
+        Read the last stored snapshot. Use refresh=true to read current provider
+        counters and status. A provider failure is represented by stale and
+        sync_status on the affected part; inspect these before displaying usage
+        as current. An old successful snapshot alone is not a freshness promise.
+      parameters:
+        - name: refresh
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+    put:
+      operationId: putAccount
+      description: |
+        Idempotently create or update the complete desired account definition.
+        ID identifies one combined subscription. Multiple accounts may share an
+        external_ref but require distinct IDs and usernames. Username and existing part
+        provider/profile are immutable. Existing parts must remain in the request;
+        disable a part instead of omitting it. Usage is preserved when updating
+        limits or expiration. Desired state is durable before provider operations.
+        A 202 response means accepted with pending/failed synchronization; retry
+        sync or let background reconciliation apply it. expected_revision=0 allows
+        creation only; a positive revision rejects stale edits with 409. Never treat 202 as fully
+        provisioned. Requests have a 64 KiB maximum and reject unknown fields.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutAccount' }
+            example:
+              username: alice
+              enabled: true
+              parts:
+                - key: main
+                  label: MAIN
+                  provider: remnawave
+                  profile: main
+                  enabled: true
+                  limit_bytes: 0
+                  expires_at: '2027-01-01T00:00:00Z'
+                  reset_strategy: NO_RESET
+                - key: cdn
+                  label: CDN
+                  provider: remnawave
+                  profile: cdn
+                  enabled: true
+                  limit_bytes: 75161927680
+                  expires_at: '2027-01-01T00:00:00Z'
+                  reset_strategy: NO_RESET
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '202': { $ref: '#/components/responses/PendingAccount' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+  /api/v1/accounts/{id}/parts/{key}:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+      - name: key
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z][a-z0-9_]{0,9}$' }
+    put:
+      operationId: putPart
+      description: Atomically add or replace one part configuration. Other parts are preserved. Optional JSON key must match the path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutPart' }
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '202': { $ref: '#/components/responses/PendingAccount' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '409': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+  /api/v1/accounts/{id}/sync:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    post:
+      operationId: syncAccount
+      description: Apply stored desired state to each provider and refresh counters.
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '202': { $ref: '#/components/responses/PendingAccount' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+  /api/v1/accounts/{id}/rotate-token:
+    parameters:
+      - $ref: '#/components/parameters/AccountID'
+    post:
+      operationId: rotateSubscriptionToken
+      description: |
+        Replace the public subscription token and invalidate the old URL. The
+        returned subscription_url must replace the client's previous URL.
+        Provider connection credentials are unchanged; already imported nodes
+        remain valid according to their independently enforced provider policies.
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '202': { $ref: '#/components/responses/PendingAccount' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+  /api/v1/subscriptions/resolve:
+    post:
+      operationId: resolveSubscription
+      description: |
+        Resolve possession of a combined URL to an enabled account's stored
+        snapshot. Requires the server API key. Only the configured public origin
+        and /sub/{token} path are accepted, without query, fragment or credentials.
+        No caller-supplied URL is fetched. Revoked tokens return 404. The caller
+        owns website sessions and must validate their link fingerprint against
+        the current subscription_url to revoke sessions after token rotation.
+        This does not certify that any part is currently usable. Maximum body 4 KiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subscription_url]
+              properties:
+                subscription_url: { type: string, format: uri, maxLength: 2048 }
+      responses:
+        '200': { $ref: '#/components/responses/Account' }
+        '400': { $ref: '#/components/responses/Error' }
+        '401': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '405': { $ref: '#/components/responses/Error' }
+        '413': { $ref: '#/components/responses/Error' }
+        '415': { $ref: '#/components/responses/Error' }
+        '500': { $ref: '#/components/responses/Error' }
+  /sub/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string, minLength: 43, maxLength: 43 }
+      - name: format
+        in: query
+        schema: { type: string, enum: [base64, plain], default: base64 }
+    get:
+      operationId: getSubscription
+      security: []
+      description: |
+        Merge eligible parts as a portable URI list, with [part label] in each
+        node's display name. Supports vless, vmess, trojan, ss, ssr, hysteria2,
+        hy2 and tuic. Clash YAML and sing-box JSON are not supported formats.
+        Reads current provider status; disabled, expired or exhausted parts are
+        omitted. An empty eligible set is a successful empty document. Any error
+        reading an otherwise eligible part returns 503 without a partial list.
+        GET and HEAD are supported. No subscription-userinfo header is emitted
+        because an unlimited pool and a limited pool have no combined quota.
+      responses:
+        '200':
+          description: Base64 or plain URI-list document.
+          headers:
+            Cache-Control:
+              schema: { type: string, const: 'no-store, max-age=0' }
+          content:
+            text/plain:
+              schema: { type: string }
+        '400': { $ref: '#/components/responses/Error' }
+        '404': { $ref: '#/components/responses/Error' }
+        '503': { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: BACKEND_API_KEY; at least 32 bytes. Server-to-server only.
+  parameters:
+    AccountID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,80}$' }
+  responses:
+    Account:
+      description: Current desired state and last observed state for each part.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Account' }
+    PendingAccount:
+      description: |
+        Desired state accepted, but one or more parts are pending or failed.
+        Examine per-part sync_status, last_error and stale; synchronization can
+        be retried without creating duplicate provider users.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Account' }
+    Error:
+      description: Sanitized machine-readable error. Provider credentials are never returned.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string, example: provider_unavailable }
+  schemas:
+    Capabilities:
+      type: object
+      required: [api_version, formats, max_parts, max_sources, managed_accounts_enabled, managed_providers, providers]
+      properties:
+        api_version: { type: string, const: '1' }
+        formats: { type: array, items: { type: string, enum: [base64, plain] } }
+        max_parts: { type: integer, const: 8 }
+        max_sources: { type: integer, const: 16 }
+        managed_accounts_enabled: { type: boolean }
+        managed_providers:
+          type: array
+          items:
+            type: object
+            required: [id, profiles]
+            properties:
+              id: { type: string }
+              profiles: { type: array, items: { type: string } }
+        providers:
+          type: array
+          description: Adapters available to the additional read-only bundles API.
+          items:
+            type: object
+            properties:
+              id: { type: string }
+              reference_type: { type: string }
+              access: { type: string, const: read_only }
+    PatchAccount:
+      type: object
+      additionalProperties: false
+      anyOf:
+        - required: [name]
+        - required: [external_ref]
+        - required: [enabled]
+      properties:
+        name: { type: string, maxLength: 128 }
+        external_ref: { type: string, maxLength: 128 }
+        enabled: { type: boolean }
+        expected_revision: { type: integer, format: int64, minimum: 0 }
+    PutPart:
+      type: object
+      additionalProperties: false
+      required: [provider, profile, enabled, limit_bytes, expires_at]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,9}$' }
+        label: { type: string, maxLength: 80 }
+        provider: { type: string }
+        profile: { type: string, minLength: 1, maxLength: 80 }
+        enabled: { type: boolean }
+        limit_bytes: { type: integer, format: int64, minimum: 0 }
+        expires_at: { type: string, format: date-time }
+        reset_strategy: { type: string, enum: [NO_RESET, DAY, WEEK, MONTH, MONTH_ROLLING], default: NO_RESET }
+        expected_revision: { type: integer, format: int64, minimum: 0 }
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, const: ok }
+    PutAccount:
+      type: object
+      additionalProperties: false
+      required: [username, enabled, parts]
+      properties:
+        name: { type: string, maxLength: 128, default: '' }
+        external_ref: { type: string, maxLength: 128, default: '', description: 'Non-unique application reference; does not enforce ownership.' }
+        expected_revision: { type: integer, format: int64, minimum: 0 }
+        username:
+          type: string
+          pattern: '^[a-z][a-z0-9_]{2,33}$'
+          description: Immutable base username; each derived username_key must be at most 36 characters.
+        enabled: { type: boolean, default: false }
+        parts:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { $ref: '#/components/schemas/PartRequest' }
+    PartRequest:
+      type: object
+      additionalProperties: false
+      required: [key, provider, profile, enabled, limit_bytes, expires_at]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{0,9}$' }
+        label: { type: string, maxLength: 80, description: 'Defaults to key; no control characters.' }
+        provider: { type: string, description: Configured provider name. }
+        profile: { type: string, minLength: 1, maxLength: 80, description: Configured provider profile. }
+        enabled: { type: boolean, default: false }
+        limit_bytes: { type: integer, format: int64, minimum: 0, description: 'Explicit zero means unlimited; missing or null is rejected.' }
+        expires_at: { type: string, format: date-time }
+        reset_strategy: { type: string, enum: [NO_RESET, DAY, WEEK, MONTH, MONTH_ROLLING], default: NO_RESET }
+    Account:
+      type: object
+      required: [id, username, enabled, subscription_url, parts, sync_status, stale, revision, created_at, updated_at, next_retry_at, last_attempt_at, failure_count]
+      properties:
+        next_retry_at: { type: [string, 'null'], format: date-time, description: Durable next retry deadline after failure; null when no retry is pending. }
+        last_attempt_at: { type: [string, 'null'], format: date-time }
+        failure_count: { type: integer, minimum: 0, description: Consecutive failed attempts for the current desired revision. }
+        id: { type: string }
+        name: { type: string }
+        external_ref: { type: string }
+        status: { type: string, enum: [active, partial, unavailable, disabled] }
+        active_parts: { type: integer, minimum: 0, maximum: 8 }
+        username: { type: string }
+        enabled: { type: boolean }
+        subscription_url: { type: string, format: uri, description: 'Secret URL; only return it to the authenticated owner on your website.' }
+        parts:
+          type: array
+          items: { $ref: '#/components/schemas/Part' }
+        sync_status: { type: string, enum: [ready, pending, error] }
+        stale: { type: boolean, description: At least one part is unsynchronized or its snapshot is missing or older than the configured freshness window. }
+        revision: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time, description: Last configuration or token change; usage refresh does not change it. }
+    Part:
+      type: object
+      required: [key, label, provider, profile, username, enabled, used_bytes, limit_bytes, unlimited, remaining_bytes, expires_at, desired_limit_bytes, desired_expires_at, reset_strategy, status, sync_status, stale, observed_at, applied_revision, accounting_status]
+      properties:
+        observed_at: { type: [string, 'null'], format: date-time, description: Last successfully accepted provider snapshot; null until observed. }
+        applied_revision: { type: integer, format: int64, minimum: 0, description: Account revision confirmed at the provider; zero means not yet confirmed by this version. }
+        accounting_status: { type: string, enum: [unknown, ok, anomaly], description: An anomaly preserves previous charges and prevents serving unconfirmed connections. }
+        key: { type: string }
+        label: { type: string }
+        provider: { type: string }
+        profile: { type: string }
+        username: { type: string, example: alice_cdn }
+        enabled: { type: boolean, description: Desired part enablement; account enablement also applies. }
+        provider_user_id: { type: string }
+        used_bytes: { type: [integer, 'null'], format: int64, description: 'Logical usage preserved across resets for NO_RESET; current native cycle for periodic strategies. Null until a snapshot exists.' }
+        provider_used_bytes: { type: [integer, 'null'], format: int64, minimum: 0 }
+        provider_limit_bytes: { type: [integer, 'null'], format: int64, minimum: 0 }
+        observed_total_bytes: { type: [integer, 'null'], format: int64, minimum: 0, description: 'Cumulative usage since accounting began, using lifetime deltas when available. Legacy charges are preserved; unseen traffic from deleted provider users cannot be recovered.' }
+        counter_resets: { type: integer, format: int64, minimum: 0 }
+        limit_bytes: { type: integer, format: int64, minimum: 0, description: Last successfully applied logical limit, or desired limit before the first snapshot. }
+        unlimited: { type: boolean, description: True when limit_bytes is zero. }
+        remaining_bytes: { type: [integer, 'null'], format: int64, minimum: 0, description: Null for unlimited or unknown usage. }
+        expires_at: { type: string, format: date-time, description: Last observed expiration, or desired expiration before the first snapshot. }
+        desired_limit_bytes: { type: integer, format: int64, minimum: 0 }
+        desired_expires_at: { type: string, format: date-time }
+        reset_strategy: { type: string }
+        status: { type: string, examples: [active, disabled, expired, limited, pending, unknown] }
+        sync_status: { type: string, enum: [ready, pending, error] }
+        stale: { type: boolean, description: 'Synchronization pending/failed, or snapshot missing/old. Default freshness window is max(2 * sync interval, 2 minutes).' }
+        last_error: { type: string, description: Sanitized machine code; present when synchronization failed. }
+        synced_at: { type: string, format: date-time, description: Timestamp of the last successful provider snapshot. }
+    Diagnostics:
+      type: object
+      required: [accounts, pending_accounts, pending_parts, error_parts, accounting_anomalies, unobserved_parts, oldest_observed_at, oldest_observation_age_seconds, running_accounts, sync_runs_total, sync_failures_total, sync_duration_seconds_sum, provider_operations]
+      properties:
+        accounts: { type: integer, minimum: 0 }
+        pending_accounts: { type: integer, minimum: 0 }
+        pending_parts: { type: integer, minimum: 0 }
+        error_parts: { type: integer, minimum: 0 }
+        accounting_anomalies: { type: integer, minimum: 0 }
+        unobserved_parts: { type: integer, minimum: 0 }
+        oldest_observed_at: { type: [string, 'null'], format: date-time }
+        oldest_observation_age_seconds: { type: [number, 'null'], minimum: 0 }
+        running_accounts: { type: integer, minimum: 0, maximum: 4 }
+        sync_runs_total: { type: integer, minimum: 0 }
+        sync_failures_total: { type: integer, minimum: 0 }
+        sync_duration_seconds_sum: { type: number, minimum: 0 }
+        provider_operations:
+          type: object
+          description: Counters grouped by bounded operation names ensure, read and links.
+          additionalProperties:
+            type: object
+            required: [calls_total, errors_total, duration_seconds_sum]
+            properties:
+              calls_total: { type: integer, minimum: 0 }
+              errors_total: { type: integer, minimum: 0 }
+              duration_seconds_sum: { type: number, minimum: 0 }

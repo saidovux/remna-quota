@@ -1,0 +1,17 @@
+[
+  {
+    "id": 7,
+    "user_id": 9,
+    "status": "active",
+    "actual_status": "active",
+    "is_trial": false,
+    "start_date": "2026-09-05T12:30:00Z",
+    "end_date": "2026-10-05T12:30:00Z",
+    "traffic_limit_gb": 250,
+    "traffic_used_gb": 12.5,
+    "device_limit": 3,
+    "autopay_enabled": false,
+    "connected_squads": [],
+    "subscription_url": "https://subscriptions.example.test/api/sub/AbCdEf0123456789"
+  }
+]

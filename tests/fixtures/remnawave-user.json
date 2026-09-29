@@ -1,0 +1,17 @@
+{
+  "response": {
+    "id": 42,
+    "shortUuid": "synthetic-short-uuid",
+    "username": "synthetic-user",
+    "status": "ACTIVE",
+    "trafficLimitBytes": 0,
+    "trafficLimitStrategy": "NO_RESET",
+    "expireAt": "2026-12-31T00:00:00Z",
+    "activeInternalSquads": [
+      {
+        "uuid": "11111111-1111-4111-8111-111111111111",
+        "name": "SYNTHETIC_MAIN"
+      }
+    ]
+  }
+}

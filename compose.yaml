@@ -1,0 +1,43 @@
+services:
+  quota-api:
+    build: .
+    env_file: .env
+    environment:
+      BACKEND_LISTEN_ADDR: 0.0.0.0:8090
+      BACKEND_PROVIDER: remnawave
+      BACKEND_DATABASE_URL: postgres://quota:${QUOTA_DB_PASSWORD:?generate a URL-safe QUOTA_DB_PASSWORD}@quota-postgres:5432/quota?sslmode=disable
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8090}:8090"
+    depends_on:
+      quota-postgres:
+        condition: service_healthy
+    networks: [database, outbound]
+    restart: unless-stopped
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+
+  quota-postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: quota
+      POSTGRES_USER: quota
+      POSTGRES_PASSWORD: ${QUOTA_DB_PASSWORD:?generate a URL-safe QUOTA_DB_PASSWORD}
+    volumes:
+      - quota-api-postgres:/var/lib/postgresql
+    networks: [database]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quota -d quota"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  quota-api-postgres:
+
+networks:
+  database:
+    internal: true
+  outbound:

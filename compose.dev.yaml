@@ -1,0 +1,19 @@
+services:
+  quota-postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${QUOTA_DB_NAME:?set QUOTA_DB_NAME in .env}
+      POSTGRES_USER: ${QUOTA_DB_USER:?set QUOTA_DB_USER in .env}
+      POSTGRES_PASSWORD: ${QUOTA_DB_PASSWORD:?set QUOTA_DB_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:${QUOTA_DB_PORT:-55432}:5432"
+    volumes:
+      - quota-postgres-dev:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  quota-postgres-dev:

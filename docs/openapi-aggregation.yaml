@@ -1,0 +1,360 @@
+openapi: 3.1.0
+info:
+  title: Remna Quota Subscription Aggregation API
+  version: 1.1.0
+  description: |
+    Compose existing subscriptions into independent bundles. Providers are read
+    only: composition never creates, renews, disables or deletes upstream users.
+    Applications own end-user authorization, billing and provisioning. Each
+    application may maintain multiple bundles per owner. External references are
+    metadata, not authorization boundaries. Administrative keys stay server-side.
+    All responses are no-store. Managed accounts are enabled by default and have
+    a separate contract in openapi.yaml. This additional API never provisions users.
+security:
+  - bearerAuth: []
+paths:
+  /healthz:
+    get:
+      operationId: liveness
+      security: []
+      responses:
+        '200': { description: Process is alive. }
+  /readyz:
+    get:
+      operationId: readiness
+      security: []
+      description: Checks the local repository, not upstream availability.
+      responses:
+        '200': { description: Repository is available. }
+        '503': { $ref: '#/components/responses/Error' }
+  /api/v1/capabilities:
+    get:
+      operationId: getCapabilities
+      responses:
+        '200':
+          description: Configured providers and supported operations.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [api_version, formats, max_sources, providers, managed_accounts_enabled]
+                properties:
+                  api_version: { type: string, const: '1' }
+                  formats: { type: array, items: { type: string, enum: [base64, plain] } }
+                  max_sources: { type: integer, const: 16 }
+                  managed_accounts_enabled: { type: boolean }
+                  providers:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, reference_type, access]
+                      properties:
+                        id: { type: string, examples: [remnawave, demo] }
+                        reference_type: { type: string, const: provider_subscription_id }
+                        access: { type: string, const: read_only }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/bundles:
+    get:
+      operationId: listBundles
+      description: |
+        Keyset pagination in ascending ID order. Keep external_ref unchanged
+        when following next_cursor. Empty next_cursor means the last page.
+        Concurrent changes do not provide a transaction-wide snapshot.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string, maxLength: 2048 }
+        - name: external_ref
+          in: query
+          schema: { type: string, maxLength: 128 }
+      responses:
+        '200':
+          description: A page of stored bundles without upstream refresh.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Bundle' } }
+                  next_cursor: { type: string }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/bundles/{id}:
+    parameters:
+      - $ref: '#/components/parameters/BundleID'
+    get:
+      operationId: getBundle
+      description: |
+        Read stored state, optionally refreshing upstream observations.
+        Refresh failures remain in source.last_error and stale in a 200 response.
+        Refresh does not change configuration revision. HEAD is also supported.
+      parameters:
+        - name: refresh
+          in: query
+          schema: { type: boolean, default: false }
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+    put:
+      operationId: putBundle
+      description: |
+        Idempotently save the complete composition. Removed sources are detached
+        locally. The stable application-selected bundle ID and token survive
+        identical retries. Expected revision 0 creates only when absent. No
+        upstream requests are made by this operation. Sources may initially be
+        pending. Empty compositions are allowed. Maximum request body 64 KiB;
+        unknown fields and duplicate provider/reference pairs are rejected.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PutBundle' }
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        '409': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+    patch:
+      operationId: patchBundle
+      description: Patch metadata or enabled state. Sources remain unchanged. Supply at least one field other than expected_revision.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: { type: string, maxLength: 128 }
+                external_ref: { type: string, maxLength: 128 }
+                metadata: { $ref: '#/components/schemas/Metadata' }
+                enabled: { type: boolean }
+                expected_revision: { $ref: '#/components/schemas/Revision' }
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: deleteBundle
+      description: Delete local composition and token only. Upstream users and credentials remain intact. A repeated deletion returns 404.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      responses:
+        '204': { description: Bundle removed. }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/bundles/{id}/sources/{key}:
+    parameters:
+      - $ref: '#/components/parameters/BundleID'
+      - name: key
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[a-z][a-z0-9_-]{0,31}$' }
+    put:
+      operationId: putSource
+      description: |
+        Atomically add or replace one source without overwriting other sources.
+        A replacement reference clears its old snapshot. If key is supplied in
+        the body, it must match the path. Bundle must already exist.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [provider, reference, enabled]
+              properties:
+                key: { type: string, pattern: '^[a-z][a-z0-9_-]{0,31}$' }
+                label: { type: string, maxLength: 80 }
+                provider: { type: string }
+                reference: { type: string, minLength: 1, maxLength: 256 }
+                enabled: { type: boolean }
+                expected_revision: { $ref: '#/components/schemas/Revision' }
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+    delete:
+      operationId: removeSource
+      description: Detach one source. Repeating removal of an absent source succeeds if the bundle exists and the revision condition matches.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/bundles/{id}/refresh:
+    parameters:
+      - $ref: '#/components/parameters/BundleID'
+    post:
+      operationId: refreshBundle
+      description: Read source observations. Inspect per-source last_error and stale; this operation cannot change upstream state.
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/bundles/{id}/rotate-token:
+    parameters:
+      - $ref: '#/components/parameters/BundleID'
+    post:
+      operationId: rotateBundleToken
+      description: |
+        Replace the public token and increment configuration revision. Previously
+        imported VPN credentials and upstream URLs are unchanged. Use a revision
+        condition to avoid rotating twice after a lost response.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedRevision'
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+  /api/v1/bundles/resolve:
+    post:
+      operationId: resolveBundle
+      description: |
+        Resolve a valid current combined URL to its bundle. Requires the server
+        API key. Only the configured public origin and /sub/{token} path are
+        accepted, with no query, fragment or credentials. No URL is fetched.
+        Disabled bundles and revoked tokens return 404. This does not authorize
+        purchases or create an end-user session.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [subscription_url]
+              properties:
+                subscription_url: { type: string, format: uri, maxLength: 2048 }
+      responses:
+        '200': { $ref: '#/components/responses/Bundle' }
+        default: { $ref: '#/components/responses/Error' }
+  /sub/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema: { type: string, minLength: 43, maxLength: 43 }
+      - name: format
+        in: query
+        schema: { type: string, enum: [base64, plain], default: base64 }
+    get:
+      operationId: getCombinedSubscription
+      security: []
+      description: |
+        Fresh portable URI list in composition order with source labels. Supports
+        vless, vmess, trojan, ss, ssr, hysteria2, hy2 and tuic. Known excluded,
+        disabled, expired and exhausted sources are omitted. Any enabled source
+        read failure returns 503 without a partial list. An empty eligible list
+        is a successful empty document. No combined subscription-userinfo quota
+        is fabricated. HEAD is also supported. Tokens are bearer secrets.
+      responses:
+        '200':
+          description: Plain or Base64 URI list.
+          content:
+            text/plain:
+              schema: { type: string }
+        default: { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: BACKEND_API_KEY. Trusted server applications only, at least 32 characters.
+  parameters:
+    BundleID:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,80}$', description: Application-selected stable bundle ID. The value resolve is reserved. }
+    ExpectedRevision:
+      name: expected_revision
+      in: query
+      schema: { $ref: '#/components/schemas/Revision' }
+  responses:
+    Bundle:
+      description: Stored composition and source observations; no upstream mutation.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Bundle' }
+    Error:
+      description: |
+        Sanitized machine-readable error. 400 malformed request, 401 unauthorized,
+        404 absent/disabled/revoked resource, 405 method, 409 revision conflict,
+        413 body too large, 415 content type, 422 invalid composition, 503 source
+        unavailable, 500 local failure. No upstream bodies or secrets are returned.
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [error]
+            properties:
+              error: { type: string, examples: [revision_conflict, invalid_bundle, source_unavailable] }
+  schemas:
+    Revision:
+      type: integer
+      format: int64
+      minimum: 0
+      description: Expected configuration revision; conflict is 409. Zero permits creation only. Omit for unconditional operation.
+    Metadata:
+      type: object
+      maxProperties: 16
+      propertyNames: { pattern: '^[a-z][a-z0-9_-]{0,31}$' }
+      additionalProperties: { type: string, maxLength: 256 }
+    SourceInput:
+      type: object
+      additionalProperties: false
+      required: [key, provider, reference, enabled]
+      properties:
+        key: { type: string, pattern: '^[a-z][a-z0-9_-]{0,31}$' }
+        label: { type: string, maxLength: 80, description: Defaults to key. No control characters. }
+        provider: { type: string, description: Configured provider ID from capabilities. }
+        reference: { type: string, minLength: 1, maxLength: 256, description: 'Remnawave: positive numeric user ID as string. Demo: main or cdn. Never a fetched URL.' }
+        enabled: { type: boolean, description: Included in this composition only; upstream access is unchanged. }
+    PutBundle:
+      type: object
+      additionalProperties: false
+      required: [enabled, sources]
+      properties:
+        name: { type: string, maxLength: 128 }
+        external_ref: { type: string, maxLength: 128, description: Optional non-unique application correlation value. }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+        enabled: { type: boolean }
+        expected_revision: { $ref: '#/components/schemas/Revision' }
+        sources:
+          type: array
+          maxItems: 16
+          items: { $ref: '#/components/schemas/SourceInput' }
+    Bundle:
+      type: object
+      required: [id, name, external_ref, metadata, enabled, subscription_url, sources, status, stale, revision, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        external_ref: { type: string }
+        metadata: { $ref: '#/components/schemas/Metadata' }
+        enabled: { type: boolean }
+        subscription_url: { type: string, format: uri, description: Secret combined subscription URL. }
+        sources: { type: array, items: { $ref: '#/components/schemas/Source' } }
+        status: { type: string, enum: [ready, pending, error, disabled], description: 'Ready indicates observed sources, not that all upstream subscriptions are active.' }
+        stale: { type: boolean }
+        revision: { type: integer, format: int64, minimum: 1 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time, description: Last configuration change; unaffected by observations. }
+    Source:
+      type: object
+      required: [key, label, provider, reference, enabled, status, used_bytes, limit_bytes, unlimited, remaining_bytes, expires_at, stale, checked_at]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        provider: { type: string }
+        reference: { type: string }
+        enabled: { type: boolean }
+        username: { type: string }
+        status: { type: string, enum: [pending, active, disabled, limited, expired, excluded] }
+        used_bytes: { type: [integer, 'null'], format: int64, minimum: 0 }
+        limit_bytes: { type: [integer, 'null'], format: int64, minimum: 0, description: Zero means unlimited, null means unknown. }
+        unlimited: { type: [boolean, 'null'] }
+        remaining_bytes: { type: [integer, 'null'], format: int64, minimum: 0, description: Null for unlimited or unknown. }
+        expires_at: { type: [string, 'null'], format: date-time }
+        stale: { type: boolean }
+        checked_at: { type: [string, 'null'], format: date-time }
+        last_error: { type: string, examples: [source_not_found, source_access_denied, source_unavailable, source_invalid_state, source_invalid_links, provider_missing] }

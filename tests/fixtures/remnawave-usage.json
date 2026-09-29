@@ -1,0 +1,15 @@
+{
+  "response": {
+    "days": [
+      {
+        "date": "2026-09-05",
+        "nodes": [
+          {
+            "uuid": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+            "totalBytes": 123456
+          }
+        ]
+      }
+    ]
+  }
+}

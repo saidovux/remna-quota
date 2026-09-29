@@ -1,0 +1,44 @@
+services:
+  remna-quota:
+    build: .
+    entrypoint: ["/usr/local/bin/remna-quota"]
+    env_file: .env
+    depends_on:
+      quota-postgres:
+        condition: service_healthy
+    networks:
+      - quota-internal
+      - external-services
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  quota-postgres:
+    image: postgres:18.4-alpine
+    environment:
+      POSTGRES_DB: ${QUOTA_DB_NAME:?set QUOTA_DB_NAME in .env}
+      POSTGRES_USER: ${QUOTA_DB_USER:?set QUOTA_DB_USER in .env}
+      POSTGRES_PASSWORD: ${QUOTA_DB_PASSWORD:?set QUOTA_DB_PASSWORD in .env}
+    volumes:
+      - quota-postgres:/var/lib/postgresql
+    networks:
+      - quota-internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  quota-postgres:
+
+networks:
+  quota-internal:
+    internal: true
+  external-services:
+    external: true
+    name: ${EXTERNAL_NETWORK_NAME:-remnawave-network}

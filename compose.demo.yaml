@@ -1,0 +1,14 @@
+services:
+  quota-api:
+    build: .
+    env_file: .env
+    environment:
+      BACKEND_LISTEN_ADDR: 0.0.0.0:8090
+      BACKEND_PROVIDER: demo
+      BACKEND_DATABASE_URL: ""
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8090}:8090"
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]

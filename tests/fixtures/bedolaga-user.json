@@ -1,0 +1,28 @@
+{
+  "id": 9,
+  "status": "active",
+  "language": "ru",
+  "balance_kopeks": 0,
+  "balance_rubles": 0,
+  "has_had_paid_subscription": true,
+  "has_made_first_topup": true,
+  "created_at": "2026-01-01T00:00:00Z",
+  "updated_at": "2026-01-01T00:00:00Z",
+  "subscription": null,
+  "subscriptions": [
+    {
+      "id": 7,
+      "status": "active",
+      "actual_status": "active",
+      "is_trial": false,
+      "start_date": "2026-09-05T12:30:00Z",
+      "end_date": "2026-10-05T12:30:00Z",
+      "traffic_limit_gb": 250,
+      "traffic_used_gb": 0,
+      "device_limit": 3,
+      "autopay_enabled": false,
+      "connected_squads": [],
+      "tariff_id": 42
+    }
+  ]
+}

@@ -1,0 +1,24 @@
+# Secrets / environment
+.env
+.env.*
+!.env.example
+!.env.legacy.example
+
+# Local data
+data/
+tmp/
+*.log
+
+# Build
+bin/
+dist/
+/remna-quota
+/quota-api
+*.exe
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
