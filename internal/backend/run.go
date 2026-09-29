@@ -57,7 +57,7 @@ func Run(ctx context.Context, cfg Config) error {
 		managedHTTP = managed
 	}
 	aggregation := aggregate.NewService(aggregationRepo, map[string]aggregate.Provider{cfg.Provider: reader})
-	handler, err := httpapi.New(managedHTTP, aggregationRepo, httpapi.Config{Aggregation: aggregation, APIKey: cfg.APIKey, PublicURL: cfg.PublicURL, StaleAfter: max(2*cfg.SyncInterval, 2*time.Minute)})
+	handler, err := httpapi.New(managedHTTP, aggregationRepo, httpapi.Config{Aggregation: aggregation, APIKey: cfg.APIKey, PublicURL: cfg.PublicURL, StaleAfter: max(2*cfg.SyncInterval, 2*time.Minute), BrandName: cfg.BrandName, BrandDescription: cfg.BrandDescription, BrandHomeURL: cfg.BrandHomeURL, SupportURL: cfg.SupportURL})
 	if err != nil {
 		return err
 	}

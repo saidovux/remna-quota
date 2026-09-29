@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<title>{{.BrandName}} — подписка</title>
+<style>
+:root{--bg:#0b0f1a;--card:#141a29;--card2:#1b2336;--fg:#eef2ff;--muted:#93a0bd;--accent:#5b8cff;--accent2:#8b5cff;--ok:#38d39f;--warn:#f6c945;--bad:#f0616d}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:radial-gradient(1100px 560px at 50% -10%,#1a2440 0%,#0b0f1a 62%),#0b0f1a;color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Manrope,Arial,sans-serif;min-height:100vh}
+.wrap{max-width:760px;margin:0 auto;padding:34px 18px 64px}
+.brand{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:22px}
+.logo{width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;font-size:21px;box-shadow:0 10px 30px rgba(91,140,255,.35)}
+.brand h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
+.muted{color:var(--muted)}
+.card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid rgba(255,255,255,.06);border-radius:18px;padding:20px;margin-bottom:16px;box-shadow:0 22px 55px rgba(0,0,0,.38)}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:600;background:rgba(56,211,159,.14);color:var(--ok)}
+.pill.pending{background:rgba(246,201,69,.15);color:var(--warn)}
+.pill.expired{background:rgba(240,97,109,.15);color:var(--bad)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor}
+h2{font-size:16px;margin:0 0 12px;letter-spacing:.2px}
+.res{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.kv .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.kv .v{font-size:20px;font-weight:800;margin-top:2px}
+.bar{height:8px;border-radius:6px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:10px}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:6px}
+.part{padding:14px 0;border-top:1px solid rgba(255,255,255,.06)}
+.part:first-of-type{border-top:0;padding-top:4px}
+.part .top{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.linkrow{display:flex;gap:8px;align-items:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 12px}
+.linkrow a{color:var(--fg);text-decoration:none;word-break:break-all;flex:1;font-size:13px}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.btn{border:0;border-radius:10px;padding:10px 15px;font-weight:600;cursor:pointer;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:13px;text-decoration:none;display:inline-block}
+.btn.ghost{background:rgba(255,255,255,.08);color:var(--fg)}
+.qr{display:flex;gap:20px;align-items:center}
+.qr .box{background:#fff;border-radius:14px;padding:10px;width:156px;height:156px;flex:0 0 auto}
+.qr .box svg{width:100%;height:100%;display:block}
+footer{text-align:center;color:var(--muted);font-size:13px;margin-top:8px}
+footer a{color:var(--accent);text-decoration:none}
+@media(max-width:560px){.res{grid-template-columns:1fr}.qr{flex-direction:column;align-items:flex-start}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><div class="logo">{{.Logo}}</div><h1>{{.BrandName}}</h1></div>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div>
+        <div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.4px">ПОДПИСКА</div>
+        <div style="font-size:21px;font-weight:800;margin-top:2px">{{.PlanName}}</div>
+      </div>
+      <span class="pill {{.StatusClass}}"><span class="dot"></span>{{.StatusLabel}}</span>
+    </div>
+    {{if .HasTraffic}}
+    <div class="res" style="margin-top:18px">
+      <div class="kv"><div class="k">Использовано</div><div class="v">{{.UsedHuman}} <span class="muted" style="font-size:13px;font-weight:600">/ {{.TotalHuman}}</span></div></div>
+      <div class="kv"><div class="k">Осталось дней</div><div class="v">{{.DaysLeft}}</div></div>
+    </div>
+    <div class="bar"><i style="width:{{.Percent}}%"></i></div>
+    {{end}}
+  </div>
+
+  {{if .Parts}}
+  <div class="card">
+    <h2>Трафик по каналам</h2>
+    {{range .Parts}}
+    <div class="part">
+      <div class="top"><strong>{{.Label}}</strong><span class="muted">{{.UsedHuman}} / {{if .Unlimited}}∞{{else}}{{.LimitHuman}}{{end}}</span></div>
+      <div class="bar"><i style="width:{{.Percent}}%"></i></div>
+      <div class="muted" style="font-size:12px;margin-top:6px">{{.StatusLabel}}{{if .ExpiresHuman}} · до {{.ExpiresHuman}}{{end}}</div>
+    </div>
+    {{end}}
+  </div>
+  {{end}}
+
+  <div class="card">
+    <h2>Ссылка для подключения</h2>
+    <div class="linkrow"><a href="{{.SubscriptionURL}}" target="_blank" rel="noopener">{{.SubscriptionURL}}</a></div>
+    <div class="actions">
+      <button class="btn" type="button" onclick="copyLink(this)">Копировать ссылку</button>
+      <a class="btn ghost" href="{{.SubscriptionURL}}" target="_blank" rel="noopener">Открыть конфиг</a>
+    </div>
+    <p class="muted" style="font-size:13px;margin:12px 0 0">Вставьте ссылку в приложение (v2rayNG, Hiddify, Streisand, Incy и т.п.) — конфигурация будет обновляться автоматически.</p>
+  </div>
+
+  <div class="card">
+    <h2>QR-код</h2>
+    <div class="qr">
+      <div class="box" id="qr"></div>
+      <div>
+        <p class="muted" style="margin:0 0 6px">Отсканируйте камерой или в приложении, чтобы добавить подписку.</p>
+        {{if .DeviceLimit}}<p class="muted" style="margin:0">Устройств: {{.DeviceUsed}} из {{.DeviceLimit}}</p>{{end}}
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    {{if .HomeURL}}<a href="{{.HomeURL}}" target="_blank" rel="noopener">{{.BrandName}}</a>{{else}}{{.BrandName}}{{end}}{{if .SupportURL}} · <a href="{{.SupportURL}}" target="_blank" rel="noopener">Поддержка</a>{{end}}
+  </footer>
+</div>
+<script src="/sub-assets/qrcode.js"></script>
+<script>
+function copyLink(btn){
+  var url=document.querySelector('.linkrow a').href;
+  var original=btn.textContent;
+  navigator.clipboard.writeText(url).then(function(){btn.textContent='Скопировано';setTimeout(function(){btn.textContent=original;},1500);});
+}
+(function(){
+  var el=document.getElementById('qr');
+  if(!el||typeof qrcode==='undefined'){return;}
+  try{
+    var url=document.querySelector('.linkrow a').href;
+    var qr=qrcode(0,'M');
+    qr.addData(url);
+    qr.make();
+    el.innerHTML=qr.createSvgTag({cellSize:4,margin:0,scalable:true});
+  }catch(e){}
+})();
+</script>
+</body>
+</html>

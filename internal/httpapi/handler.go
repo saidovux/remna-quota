@@ -40,19 +40,27 @@ type managedDirectory interface {
 }
 
 type Config struct {
-	Aggregation *aggregate.Service
-	APIKey      string
-	PublicURL   string
-	StaleAfter  time.Duration
+	Aggregation      *aggregate.Service
+	APIKey           string
+	PublicURL        string
+	StaleAfter       time.Duration
+	BrandName        string
+	BrandDescription string
+	BrandHomeURL     string
+	SupportURL       string
 }
 
 type handler struct {
-	aggregation *aggregate.Service
-	service     Service
-	health      HealthChecker
-	keyHash     [32]byte
-	publicURL   string
-	staleAfter  time.Duration
+	aggregation      *aggregate.Service
+	service          Service
+	health           HealthChecker
+	keyHash          [32]byte
+	publicURL        string
+	staleAfter       time.Duration
+	brandName        string
+	brandDescription string
+	brandHomeURL     string
+	supportURL       string
 }
 
 func New(service Service, health HealthChecker, config Config) (http.Handler, error) {
@@ -69,7 +77,11 @@ func New(service Service, health HealthChecker, config Config) (http.Handler, er
 	if config.StaleAfter <= 0 {
 		config.StaleAfter = 2 * time.Minute
 	}
-	h := &handler{aggregation: config.Aggregation, service: service, health: health, keyHash: sha256.Sum256([]byte(config.APIKey)), publicURL: strings.TrimRight(config.PublicURL, "/"), staleAfter: config.StaleAfter}
+	brandName := strings.TrimSpace(config.BrandName)
+	if brandName == "" {
+		brandName = "Subscription"
+	}
+	h := &handler{aggregation: config.Aggregation, service: service, health: health, keyHash: sha256.Sum256([]byte(config.APIKey)), publicURL: strings.TrimRight(config.PublicURL, "/"), staleAfter: config.StaleAfter, brandName: brandName, brandDescription: strings.TrimSpace(config.BrandDescription), brandHomeURL: strings.TrimRight(config.BrandHomeURL, "/"), supportURL: strings.TrimSpace(config.SupportURL)}
 	return h, nil
 }
 
@@ -126,6 +138,10 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.account(w, r)
+		return
+	}
+	if r.URL.Path == "/sub-assets/qrcode.js" {
+		h.subpageAsset(w, r)
 		return
 	}
 	if strings.HasPrefix(r.URL.Path, "/sub/") {
@@ -301,6 +317,12 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	// A browser opening the link gets a human-readable page; VPN clients keep
+	// receiving the configuration (they do not send an HTML Accept header).
+	if r.URL.Query().Get("format") == "" && wantsSubscriptionPage(r) {
+		h.subscriptionPage(w, r, token)
+		return
+	}
 	format := r.URL.Query().Get("format")
 	if format == "" {
 		format = "base64"
@@ -317,6 +339,7 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 				aggregateError(w, err)
 				return
 			}
+			h.applyAggregateHeaders(w, token, b)
 			if format == "json" {
 				h.writeSubscriptionJSON(w, bundle.Bundle{}, links)
 				return
@@ -338,6 +361,7 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		serviceError(w, err)
 		return
 	}
+	h.applySubscriptionHeaders(w, token, h.accountResponse(b).Parts)
 	if format == "json" {
 		if bundle.DeviceLimit(b) > 0 {
 			w.Header().Set("x-hwid-active", "true")

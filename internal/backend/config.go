@@ -30,6 +30,10 @@ type Config struct {
 	RemnawaveCaddyKey          string
 	RemnawaveForwardedFor      string
 	RemnawaveForwardedProto    string
+	BrandName                  string
+	BrandDescription           string
+	BrandHomeURL               string
+	SupportURL                 string
 }
 
 func LoadConfig() (Config, error) {
@@ -51,6 +55,10 @@ func LoadConfig() (Config, error) {
 		RemnawaveCaddyKey:          env("REMNAWAVE_CADDY_API_KEY", ""),
 		RemnawaveForwardedFor:      env("REMNAWAVE_FORWARDED_FOR", ""),
 		RemnawaveForwardedProto:    env("REMNAWAVE_FORWARDED_PROTO", ""),
+		BrandName:                  env("BACKEND_BRAND_NAME", "Subscription"),
+		BrandDescription:           env("BACKEND_BRAND_DESCRIPTION", ""),
+		BrandHomeURL:               env("BACKEND_BRAND_HOME_URL", ""),
+		SupportURL:                 env("BACKEND_SUPPORT_URL", ""),
 	}
 	switch env("BACKEND_ENABLE_MANAGED_ACCOUNTS", "true") {
 	case "true":
@@ -70,6 +78,26 @@ func LoadConfig() (Config, error) {
 		return c, errors.New("BACKEND_PUBLIC_URL must be an absolute HTTP(S) origin without credentials, path, or query")
 	}
 	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
+	c.BrandName = strings.TrimSpace(c.BrandName)
+	if c.BrandName == "" || len([]rune(c.BrandName)) > 80 || strings.ContainsAny(c.BrandName, "\r\n\t") {
+		return c, errors.New("BACKEND_BRAND_NAME must contain 1..80 characters without control characters")
+	}
+	c.BrandDescription = strings.TrimSpace(c.BrandDescription)
+	if len([]rune(c.BrandDescription)) > 200 || strings.ContainsAny(c.BrandDescription, "\r\n\t") {
+		return c, errors.New("BACKEND_BRAND_DESCRIPTION must be a single line of at most 200 characters")
+	}
+	for _, item := range []struct{ key, value string }{
+		{"BACKEND_BRAND_HOME_URL", c.BrandHomeURL},
+		{"BACKEND_SUPPORT_URL", c.SupportURL},
+	} {
+		if item.value == "" {
+			continue
+		}
+		brandURL, err := url.Parse(item.value)
+		if err != nil || brandURL.Host == "" || (brandURL.Scheme != "https" && brandURL.Scheme != "http") || brandURL.User != nil {
+			return c, fmt.Errorf("%s must be an absolute HTTP(S) URL", item.key)
+		}
+	}
 	c.SyncInterval, err = time.ParseDuration(env("BACKEND_SYNC_INTERVAL", "10s"))
 	if err != nil || c.SyncInterval < 5*time.Second || c.SyncInterval > 24*time.Hour {
 		return c, errors.New("BACKEND_SYNC_INTERVAL must be between 5s and 24h")
