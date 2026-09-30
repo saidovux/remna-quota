@@ -48,6 +48,7 @@ type Config struct {
 	BrandDescription string
 	BrandAnnounce    string
 	BrandHomeURL     string
+	BrandAccountURL  string
 	SupportURL       string
 }
 
@@ -62,6 +63,7 @@ type handler struct {
 	brandDescription string
 	brandAnnounce    string
 	brandHomeURL     string
+	brandAccountURL  string
 	supportURL       string
 }
 
@@ -83,7 +85,7 @@ func New(service Service, health HealthChecker, config Config) (http.Handler, er
 	if brandName == "" {
 		brandName = "Subscription"
 	}
-	h := &handler{aggregation: config.Aggregation, service: service, health: health, keyHash: sha256.Sum256([]byte(config.APIKey)), publicURL: strings.TrimRight(config.PublicURL, "/"), staleAfter: config.StaleAfter, brandName: brandName, brandDescription: strings.TrimSpace(config.BrandDescription), brandAnnounce: strings.TrimSpace(config.BrandAnnounce), brandHomeURL: strings.TrimRight(config.BrandHomeURL, "/"), supportURL: strings.TrimSpace(config.SupportURL)}
+	h := &handler{aggregation: config.Aggregation, service: service, health: health, keyHash: sha256.Sum256([]byte(config.APIKey)), publicURL: strings.TrimRight(config.PublicURL, "/"), staleAfter: config.StaleAfter, brandName: brandName, brandDescription: strings.TrimSpace(config.BrandDescription), brandAnnounce: strings.TrimSpace(config.BrandAnnounce), brandHomeURL: strings.TrimRight(config.BrandHomeURL, "/"), brandAccountURL: strings.TrimRight(config.BrandAccountURL, "/"), supportURL: strings.TrimSpace(config.SupportURL)}
 	return h, nil
 }
 
@@ -319,10 +321,19 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	// A real browser navigation always gets the human-readable page, even with
-	// ?format=... (browsers cannot provide HWID for the config path). VPN clients
-	// are detected and keep receiving the configuration.
+	// A real browser navigation opens the customer's account page instead of a
+	// separate subscription stub: the page exchanges the link for a limited
+	// account session. Falls back to the built-in page if no account URL is set.
 	if wantsSubscriptionPage(r) {
+		if h.brandAccountURL != "" {
+			if !h.subscriptionExists(r, token) {
+				writeError(w, http.StatusNotFound, "not_found")
+				return
+			}
+			target := h.brandAccountURL + "?url=" + url.QueryEscape(h.publicURL+"/sub/"+url.PathEscape(token))
+			http.Redirect(w, r, target, http.StatusFound)
+			return
+		}
 		h.subscriptionPage(w, r, token)
 		return
 	}
@@ -406,6 +417,20 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeSubscription(w, links, format)
+}
+
+func (h *handler) subscriptionExists(r *http.Request, token string) bool {
+	if h.service != nil {
+		if _, err := h.service.ByToken(r.Context(), token); err == nil {
+			return true
+		}
+	}
+	if h.aggregation != nil {
+		if _, err := h.aggregation.ByToken(r.Context(), token); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // writeJSONConfig serves the merged Xray JSON configuration. It returns false

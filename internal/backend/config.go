@@ -34,6 +34,7 @@ type Config struct {
 	BrandDescription           string
 	BrandAnnounce              string
 	BrandHomeURL               string
+	BrandAccountURL            string
 	SupportURL                 string
 }
 
@@ -60,6 +61,7 @@ func LoadConfig() (Config, error) {
 		BrandDescription:           env("BACKEND_BRAND_DESCRIPTION", ""),
 		BrandAnnounce:              env("BACKEND_BRAND_ANNOUNCE", ""),
 		BrandHomeURL:               env("BACKEND_BRAND_HOME_URL", ""),
+		BrandAccountURL:            env("BACKEND_BRAND_ACCOUNT_URL", ""),
 		SupportURL:                 env("BACKEND_SUPPORT_URL", ""),
 	}
 	switch env("BACKEND_ENABLE_MANAGED_ACCOUNTS", "true") {
@@ -94,6 +96,7 @@ func LoadConfig() (Config, error) {
 	}
 	for _, item := range []struct{ key, value string }{
 		{"BACKEND_BRAND_HOME_URL", c.BrandHomeURL},
+		{"BACKEND_BRAND_ACCOUNT_URL", c.BrandAccountURL},
 		{"BACKEND_SUPPORT_URL", c.SupportURL},
 	} {
 		if item.value == "" {

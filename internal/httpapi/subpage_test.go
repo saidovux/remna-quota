@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +99,41 @@ func TestBrowserAlwaysGetsPageEvenWithFormat(t *testing.T) {
 	h.ServeHTTP(w, r)
 	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
 		t.Fatalf("browser with ?format=json got %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
+func TestBrowserRedirectsToAccountPage(t *testing.T) {
+	h, err := New(&stubService{b: testBundle()}, stubHealth{}, Config{
+		APIKey:          testAPIKey,
+		PublicURL:       "https://subscriptions.example",
+		BrandName:       "FutcinVPN",
+		BrandAccountURL: "https://site.example/link",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	browser := func(path string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, path, nil)
+		r.Header.Set("Accept", "text/html")
+		r.Header.Set("User-Agent", "Mozilla/5.0 Chrome/126")
+		r.Header.Set("Sec-Fetch-Dest", "document")
+		r.Header.Set("Sec-Fetch-Mode", "navigate")
+		return r
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, browser("/sub/public-token"))
+	if w.Code != http.StatusFound {
+		t.Fatalf("status = %d, want 302", w.Code)
+	}
+	want := "https://site.example/link?url=" + url.QueryEscape("https://subscriptions.example/sub/public-token")
+	if got := w.Header().Get("Location"); got != want {
+		t.Fatalf("location = %q, want %q", got, want)
+	}
+
+	missing := httptest.NewRecorder()
+	h.ServeHTTP(missing, browser("/sub/does-not-exist"))
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("unknown token status = %d, want 404", missing.Code)
 	}
 }
 
