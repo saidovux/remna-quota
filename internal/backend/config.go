@@ -32,6 +32,7 @@ type Config struct {
 	RemnawaveForwardedProto    string
 	BrandName                  string
 	BrandDescription           string
+	BrandAnnounce              string
 	BrandHomeURL               string
 	SupportURL                 string
 }
@@ -57,6 +58,7 @@ func LoadConfig() (Config, error) {
 		RemnawaveForwardedProto:    env("REMNAWAVE_FORWARDED_PROTO", ""),
 		BrandName:                  env("BACKEND_BRAND_NAME", "Subscription"),
 		BrandDescription:           env("BACKEND_BRAND_DESCRIPTION", ""),
+		BrandAnnounce:              env("BACKEND_BRAND_ANNOUNCE", ""),
 		BrandHomeURL:               env("BACKEND_BRAND_HOME_URL", ""),
 		SupportURL:                 env("BACKEND_SUPPORT_URL", ""),
 	}
@@ -85,6 +87,10 @@ func LoadConfig() (Config, error) {
 	c.BrandDescription = strings.TrimSpace(c.BrandDescription)
 	if len([]rune(c.BrandDescription)) > 200 || strings.ContainsAny(c.BrandDescription, "\r\n\t") {
 		return c, errors.New("BACKEND_BRAND_DESCRIPTION must be a single line of at most 200 characters")
+	}
+	c.BrandAnnounce = strings.TrimSpace(c.BrandAnnounce)
+	if len([]rune(c.BrandAnnounce)) > 200 || strings.ContainsAny(c.BrandAnnounce, "\r\n\t") {
+		return c, errors.New("BACKEND_BRAND_ANNOUNCE must be a single line of at most 200 characters")
 	}
 	for _, item := range []struct{ key, value string }{
 		{"BACKEND_BRAND_HOME_URL", c.BrandHomeURL},

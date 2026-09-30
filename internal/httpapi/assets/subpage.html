@@ -11,7 +11,8 @@
 html,body{margin:0;padding:0}
 body{background:radial-gradient(1100px 560px at 50% -10%,#1a2440 0%,#0b0f1a 62%),#0b0f1a;color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Manrope,Arial,sans-serif;min-height:100vh}
 .wrap{max-width:760px;margin:0 auto;padding:34px 18px 64px}
-.brand{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:22px}
+.brand{display:flex;align-items:center;gap:12px;justify-content:center;margin-bottom:14px}
+.tagline{color:var(--muted);text-align:center;font-size:14px;line-height:1.5;max-width:600px;margin:0 auto 22px}
 .logo{width:46px;height:46px;border-radius:13px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:grid;place-items:center;font-weight:800;font-size:21px;box-shadow:0 10px 30px rgba(91,140,255,.35)}
 .brand h1{font-size:20px;margin:0;font-weight:700;letter-spacing:.2px}
 .muted{color:var(--muted)}
@@ -29,6 +30,9 @@ h2{font-size:16px;margin:0 0 12px;letter-spacing:.2px}
 .part{padding:14px 0;border-top:1px solid rgba(255,255,255,.06)}
 .part:first-of-type{border-top:0;padding-top:4px}
 .part .top{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.part .hint{color:var(--muted);font-size:12px;margin-top:2px}
+.metrics{display:flex;flex-wrap:wrap;gap:8px 22px;margin-top:10px;font-size:13px;color:var(--muted)}
+.metrics b{color:var(--fg)}
 .linkrow{display:flex;gap:8px;align-items:center;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:10px 12px}
 .linkrow a{color:var(--fg);text-decoration:none;word-break:break-all;flex:1;font-size:13px}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
@@ -45,6 +49,7 @@ footer a{color:var(--accent);text-decoration:none}
 <body>
 <div class="wrap">
   <div class="brand"><div class="logo">{{.Logo}}</div><h1>{{.BrandName}}</h1></div>
+  {{if .BrandDescription}}<p class="tagline">{{.BrandDescription}}</p>{{end}}
 
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
@@ -56,7 +61,7 @@ footer a{color:var(--accent);text-decoration:none}
     </div>
     {{if .HasTraffic}}
     <div class="res" style="margin-top:18px">
-      <div class="kv"><div class="k">Использовано</div><div class="v">{{.UsedHuman}} <span class="muted" style="font-size:13px;font-weight:600">/ {{.TotalHuman}}</span></div></div>
+      <div class="kv"><div class="k">Потрачено</div><div class="v">{{.UsedHuman}} <span class="muted" style="font-size:13px;font-weight:600">/ {{.TotalHuman}}</span></div></div>
       <div class="kv"><div class="k">Осталось дней</div><div class="v">{{.DaysLeft}}</div></div>
     </div>
     <div class="bar"><i style="width:{{.Percent}}%"></i></div>
@@ -68,9 +73,13 @@ footer a{color:var(--accent);text-decoration:none}
     <h2>Трафик по каналам</h2>
     {{range .Parts}}
     <div class="part">
-      <div class="top"><strong>{{.Label}}</strong><span class="muted">{{.UsedHuman}} / {{if .Unlimited}}∞{{else}}{{.LimitHuman}}{{end}}</span></div>
+      <div class="top"><div><strong>{{.Label}}</strong>{{if .Hint}}<div class="hint">{{.Hint}}</div>{{end}}</div><span class="muted">{{.StatusLabel}}{{if .ExpiresHuman}} · до {{.ExpiresHuman}}{{end}}</span></div>
       <div class="bar"><i style="width:{{.Percent}}%"></i></div>
-      <div class="muted" style="font-size:12px;margin-top:6px">{{.StatusLabel}}{{if .ExpiresHuman}} · до {{.ExpiresHuman}}{{end}}</div>
+      <div class="metrics">
+        <span>Потрачено: <b>{{.UsedHuman}}</b></span>
+        <span>Осталось: <b>{{.RemainingHuman}}</b></span>
+        <span>Всего: <b>{{if .Unlimited}}∞{{else}}{{.LimitHuman}}{{end}}</b></span>
+      </div>
     </div>
     {{end}}
   </div>

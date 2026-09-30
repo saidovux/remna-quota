@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -19,34 +20,37 @@ var subpageAssets embed.FS
 var subpageTemplate = template.Must(template.ParseFS(subpageAssets, "assets/subpage.html"))
 
 type subpagePart struct {
-	Label        string
-	StatusLabel  string
-	UsedHuman    string
-	LimitHuman   string
-	ExpiresHuman string
-	Percent      int
-	Unlimited    bool
+	Label          string
+	Hint           string
+	StatusLabel    string
+	UsedHuman      string
+	LimitHuman     string
+	RemainingHuman string
+	ExpiresHuman   string
+	Percent        int
+	Unlimited      bool
 }
 
 type subpageData struct {
-	BrandName       string
-	Logo            string
-	PlanName        string
-	StatusLabel     string
-	StatusClass     string
-	SubscriptionURL string
-	UsedHuman       string
-	TotalHuman      string
-	DaysLeft        int
-	Percent         int
-	HasTraffic      bool
-	Parts           []subpagePart
-	DeviceUsed      int
-	DeviceLimit     int
-	HomeURL         string
-	SupportURL      string
-	UsedBytes       int64
-	TotalBytes      int64
+	BrandName        string
+	BrandDescription string
+	Logo             string
+	PlanName         string
+	StatusLabel      string
+	StatusClass      string
+	SubscriptionURL  string
+	UsedHuman        string
+	TotalHuman       string
+	DaysLeft         int
+	Percent          int
+	HasTraffic       bool
+	Parts            []subpagePart
+	DeviceUsed       int
+	DeviceLimit      int
+	HomeURL          string
+	SupportURL       string
+	UsedBytes        int64
+	TotalBytes       int64
 }
 
 // wantsSubscriptionPage reports whether a request looks like a browser opening
@@ -89,14 +93,15 @@ func (h *handler) renderSubscriptionPage(w http.ResponseWriter, data subpageData
 
 func (h *handler) subscriptionPageData(a accountResponse, token string) subpageData {
 	data := subpageData{
-		BrandName:       h.brandName,
-		Logo:            brandInitial(h.brandName),
-		PlanName:        strings.TrimSpace(a.Name),
-		SubscriptionURL: h.publicURL + "/sub/" + url.PathEscape(token),
-		DeviceLimit:     a.DeviceLimit,
-		DeviceUsed:      a.DeviceCount,
-		HomeURL:         h.brandHomeURL,
-		SupportURL:      h.supportURL,
+		BrandName:        h.brandName,
+		BrandDescription: h.brandDescription,
+		Logo:             brandInitial(h.brandName),
+		PlanName:         strings.TrimSpace(a.Name),
+		SubscriptionURL:  h.publicURL + "/sub/" + url.PathEscape(token),
+		DeviceLimit:      a.DeviceLimit,
+		DeviceUsed:       a.DeviceCount,
+		HomeURL:          h.brandHomeURL,
+		SupportURL:       h.supportURL,
 	}
 	if data.PlanName == "" {
 		data.PlanName = h.brandName
@@ -119,11 +124,22 @@ func (h *handler) subscriptionPageData(a accountResponse, token string) subpageD
 		}
 		item := subpagePart{
 			Label:       part.Label,
+			Hint:        partHint(part.Key),
 			Unlimited:   part.Unlimited,
 			UsedHuman:   humanBytes(used),
 			LimitHuman:  humanBytes(part.LimitBytes),
 			Percent:     percent,
 			StatusLabel: partStatusPresentation(part.Status),
+		}
+		if part.Unlimited {
+			item.RemainingHuman = "∞"
+			item.LimitHuman = "∞"
+		} else {
+			remaining := part.LimitBytes - used
+			if remaining < 0 {
+				remaining = 0
+			}
+			item.RemainingHuman = humanBytes(remaining)
 		}
 		if !part.ExpiresAt.IsZero() && part.ExpiresAt.After(time.Now()) {
 			item.ExpiresHuman = part.ExpiresAt.UTC().Format("02.01.2006")
@@ -151,12 +167,13 @@ func (h *handler) subscriptionPageData(a accountResponse, token string) subpageD
 
 func (h *handler) aggregatePageData(b aggregate.Bundle, token string) subpageData {
 	data := subpageData{
-		BrandName:       h.brandName,
-		Logo:            brandInitial(h.brandName),
-		PlanName:        strings.TrimSpace(b.Name),
-		SubscriptionURL: h.publicURL + "/sub/" + url.PathEscape(token),
-		HomeURL:         h.brandHomeURL,
-		SupportURL:      h.supportURL,
+		BrandName:        h.brandName,
+		BrandDescription: h.brandDescription,
+		Logo:             brandInitial(h.brandName),
+		PlanName:         strings.TrimSpace(b.Name),
+		SubscriptionURL:  h.publicURL + "/sub/" + url.PathEscape(token),
+		HomeURL:          h.brandHomeURL,
+		SupportURL:       h.supportURL,
 	}
 	if data.PlanName == "" {
 		data.PlanName = h.brandName
@@ -177,6 +194,11 @@ func (h *handler) aggregatePageData(b aggregate.Bundle, token string) subpageDat
 		if source.Snapshot != nil {
 			item.UsedHuman = humanBytes(source.Snapshot.UsedBytes)
 			item.LimitHuman = humanBytes(source.Snapshot.LimitBytes)
+			remaining := source.Snapshot.LimitBytes - source.Snapshot.UsedBytes
+			if remaining < 0 {
+				remaining = 0
+			}
+			item.RemainingHuman = humanBytes(remaining)
 			if source.Snapshot.LimitBytes > 0 {
 				item.Percent = int(source.Snapshot.UsedBytes * 100 / source.Snapshot.LimitBytes)
 				if item.Percent > 100 {
@@ -216,6 +238,13 @@ func (h *handler) applySubscriptionHeaders(w http.ResponseWriter, token string, 
 	}
 	w.Header().Set("profile-update-interval", "12")
 	w.Header().Set("profile-web-page-url", h.publicURL+"/sub/"+url.PathEscape(token))
+	if h.brandDescription != "" {
+		w.Header().Set("profile-description", encodeHeaderValue(h.brandDescription))
+	}
+	if h.brandAnnounce != "" {
+		announce := strings.ReplaceAll(h.brandAnnounce, "{days}", strconv.Itoa(maxDaysLeft(parts)))
+		w.Header().Set("announce", encodeHeaderValue(announce))
+	}
 	if h.brandHomeURL != "" {
 		w.Header().Set("announce-url", h.brandHomeURL)
 	}
@@ -225,6 +254,16 @@ func (h *handler) applySubscriptionHeaders(w http.ResponseWriter, token string, 
 	if info, ok := subscriptionUserInfo(parts); ok {
 		w.Header().Set("subscription-userinfo", info)
 	}
+}
+
+func maxDaysLeft(parts []partResponse) int {
+	days := 0
+	for _, part := range parts {
+		if part.DaysLeft != nil && *part.DaysLeft > days {
+			days = *part.DaysLeft
+		}
+	}
+	return days
 }
 
 func (h *handler) applyAggregateHeaders(w http.ResponseWriter, token string, b aggregate.Bundle) {
@@ -288,6 +327,17 @@ func statusPresentation(status string) (string, string) {
 		return "Недоступна", "expired"
 	default:
 		return strings.ToUpper(status), "expired"
+	}
+}
+
+func partHint(key string) string {
+	switch key {
+	case "main":
+		return "Обычный трафик (без CDN)"
+	case "cdn":
+		return "Трафик через CDN"
+	default:
+		return ""
 	}
 }
 

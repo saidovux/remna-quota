@@ -46,6 +46,7 @@ type Config struct {
 	StaleAfter       time.Duration
 	BrandName        string
 	BrandDescription string
+	BrandAnnounce    string
 	BrandHomeURL     string
 	SupportURL       string
 }
@@ -59,6 +60,7 @@ type handler struct {
 	staleAfter       time.Duration
 	brandName        string
 	brandDescription string
+	brandAnnounce    string
 	brandHomeURL     string
 	supportURL       string
 }
@@ -81,7 +83,7 @@ func New(service Service, health HealthChecker, config Config) (http.Handler, er
 	if brandName == "" {
 		brandName = "Subscription"
 	}
-	h := &handler{aggregation: config.Aggregation, service: service, health: health, keyHash: sha256.Sum256([]byte(config.APIKey)), publicURL: strings.TrimRight(config.PublicURL, "/"), staleAfter: config.StaleAfter, brandName: brandName, brandDescription: strings.TrimSpace(config.BrandDescription), brandHomeURL: strings.TrimRight(config.BrandHomeURL, "/"), supportURL: strings.TrimSpace(config.SupportURL)}
+	h := &handler{aggregation: config.Aggregation, service: service, health: health, keyHash: sha256.Sum256([]byte(config.APIKey)), publicURL: strings.TrimRight(config.PublicURL, "/"), staleAfter: config.StaleAfter, brandName: brandName, brandDescription: strings.TrimSpace(config.BrandDescription), brandAnnounce: strings.TrimSpace(config.BrandAnnounce), brandHomeURL: strings.TrimRight(config.BrandHomeURL, "/"), supportURL: strings.TrimSpace(config.SupportURL)}
 	return h, nil
 }
 

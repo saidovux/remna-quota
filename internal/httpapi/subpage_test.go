@@ -11,11 +11,13 @@ import (
 func newBrandedHandler(t *testing.T, s *stubService) http.Handler {
 	t.Helper()
 	h, err := New(s, stubHealth{}, Config{
-		APIKey:       testAPIKey,
-		PublicURL:    "https://subscriptions.example",
-		BrandName:    "FutcinVPN",
-		BrandHomeURL: "https://site.example",
-		SupportURL:   "https://site.example/support",
+		APIKey:           testAPIKey,
+		PublicURL:        "https://subscriptions.example",
+		BrandName:        "FutcinVPN",
+		BrandDescription: "Тестовое описание сервиса",
+		BrandAnnounce:    "Осталось дней: {days}",
+		BrandHomeURL:     "https://site.example",
+		SupportURL:       "https://site.example/support",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +39,7 @@ func TestSubscriptionPageRendersForBrowsers(t *testing.T) {
 		t.Fatalf("content type = %q", contentType)
 	}
 	body := w.Body.String()
-	for _, want := range []string{"FutcinVPN", "https://subscriptions.example/sub/public-token", "MAIN", "CDN", "/sub-assets/qrcode.js"} {
+	for _, want := range []string{"FutcinVPN", "Тестовое описание сервиса", "https://subscriptions.example/sub/public-token", "MAIN", "CDN", "Потрачено", "Осталось", "/sub-assets/qrcode.js"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("page does not contain %q", want)
 		}
@@ -60,6 +62,10 @@ func TestSubscriptionConfigAdvertisesProfile(t *testing.T) {
 	}
 	if got := w.Header().Get("support-url"); got != "https://site.example/support" {
 		t.Fatalf("support-url = %q", got)
+	}
+	wantAnnounce := "base64:" + base64.StdEncoding.EncodeToString([]byte("Осталось дней: 0"))
+	if got := w.Header().Get("announce"); got != wantAnnounce {
+		t.Fatalf("announce = %q, want %q", got, wantAnnounce)
 	}
 }
 
