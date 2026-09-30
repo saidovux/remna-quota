@@ -205,7 +205,7 @@ func (h *handler) aggregatePageData(b aggregate.Bundle, token string) subpageDat
 					item.Percent = 100
 				}
 			}
-			days := int(time.Until(source.Snapshot.ExpiresAt).Hours() / 24)
+			days := daysLeftUntil(source.Snapshot.ExpiresAt)
 			if days < 0 {
 				days = 0
 			}

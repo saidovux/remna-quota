@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func newBrandedHandler(t *testing.T, s *stubService) http.Handler {
@@ -63,7 +64,7 @@ func TestSubscriptionConfigAdvertisesProfile(t *testing.T) {
 	if got := w.Header().Get("support-url"); got != "https://site.example/support" {
 		t.Fatalf("support-url = %q", got)
 	}
-	wantAnnounce := "base64:" + base64.StdEncoding.EncodeToString([]byte("Осталось дней: 0"))
+	wantAnnounce := "base64:" + base64.StdEncoding.EncodeToString([]byte("Осталось дней: 1"))
 	if got := w.Header().Get("announce"); got != wantAnnounce {
 		t.Fatalf("announce = %q, want %q", got, wantAnnounce)
 	}
@@ -80,6 +81,34 @@ func TestSubscriptionUserInfoOnlyForCappedParts(t *testing.T) {
 	unlimited = append(unlimited, partResponse{Enabled: true, Unlimited: true})
 	if _, ok := subscriptionUserInfo(unlimited); ok {
 		t.Fatal("mixed unlimited bundle must not advertise a combined total")
+	}
+}
+
+func TestDaysLeftRoundsPartialDayUp(t *testing.T) {
+	now := time.Now()
+	cases := []struct {
+		name string
+		at   time.Time
+		want int
+	}{
+		{"expired", now.Add(-time.Hour), 0},
+		{"exact zero", time.Time{}, 0},
+		{"last partial day", now.Add(3 * time.Hour), 1},
+		{"almost 30 days", now.Add(29*24*time.Hour + 12*time.Hour), 30},
+		{"exact 30 days", now.Add(30 * 24 * time.Hour), 30},
+	}
+	for _, tc := range cases {
+		if got := daysLeftUntil(tc.at); got != tc.want {
+			t.Fatalf("%s: got %d want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestMaxDaysLeftUsesLatestChannel(t *testing.T) {
+	short, long := 5, 40
+	parts := []partResponse{{DaysLeft: &short}, {DaysLeft: &long}}
+	if got := maxDaysLeft(parts); got != 40 {
+		t.Fatalf("maxDaysLeft = %d, want 40 (latest channel wins)", got)
 	}
 }
 

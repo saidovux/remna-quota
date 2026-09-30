@@ -1,12 +1,27 @@
 package httpapi
 
 import (
+	"math"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/saidovux/remna-quota/internal/bundle"
 )
+
+// daysLeftUntil returns the number of calendar days left, rounding a partial
+// day up: a freshly issued 30-day subscription reads 30, the final partial day
+// reads 1, and an expired or zero time reads 0.
+func daysLeftUntil(expiresAt time.Time) int {
+	if expiresAt.IsZero() {
+		return 0
+	}
+	remaining := time.Until(expiresAt)
+	if remaining <= 0 {
+		return 0
+	}
+	return int(math.Ceil(remaining.Hours() / 24))
+}
 
 type accountResponse struct {
 	DeviceLimit       int            `json:"device_limit"`
@@ -113,10 +128,7 @@ func (h *handler) accountResponse(b bundle.Bundle) accountResponse {
 			item.RemainingBytes = &remaining
 		}
 		if !item.ExpiresAt.IsZero() {
-			days := int(time.Until(item.ExpiresAt).Hours() / 24)
-			if days < 0 {
-				days = 0
-			}
+			days := daysLeftUntil(item.ExpiresAt)
 			item.DaysLeft = &days
 		}
 		if !b.Enabled || !part.Enabled {

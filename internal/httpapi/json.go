@@ -36,10 +36,7 @@ func (h *handler) writeSubscriptionJSON(w http.ResponseWriter, b bundle.Bundle, 
 		if !part.ExpiresAt.IsZero() {
 			expires := part.ExpiresAt
 			item.ExpiresAt = &expires
-			days := int(time.Until(expires).Hours() / 24)
-			if days < 0 {
-				days = 0
-			}
+			days := daysLeftUntil(expires)
 			item.DaysLeft = &days
 			if expires.After(latest) {
 				latest = expires
@@ -75,11 +72,7 @@ func (h *handler) writeSubscriptionJSON(w http.ResponseWriter, b bundle.Bundle, 
 	}
 	if !latest.IsZero() {
 		combined["expires_at"] = latest
-		days := int(time.Until(latest).Hours() / 24)
-		if days < 0 {
-			days = 0
-		}
-		combined["days_left"] = days
+		combined["days_left"] = daysLeftUntil(latest)
 	}
 	if len(parts) == 0 {
 		combined["status"] = "expired"
