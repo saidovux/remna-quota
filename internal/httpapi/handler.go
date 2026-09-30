@@ -319,9 +319,10 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
-	// A browser opening the link gets a human-readable page; VPN clients keep
-	// receiving the configuration (they do not send an HTML Accept header).
-	if r.URL.Query().Get("format") == "" && wantsSubscriptionPage(r) {
+	// A real browser navigation always gets the human-readable page, even with
+	// ?format=... (browsers cannot provide HWID for the config path). VPN clients
+	// are detected and keep receiving the configuration.
+	if wantsSubscriptionPage(r) {
 		h.subscriptionPage(w, r, token)
 		return
 	}

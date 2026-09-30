@@ -87,6 +87,20 @@ func TestSubscriptionUserInfoOnlyForCappedParts(t *testing.T) {
 	}
 }
 
+func TestBrowserAlwaysGetsPageEvenWithFormat(t *testing.T) {
+	h := newBrandedHandler(t, &stubService{b: testBundle(), links: []string{"vless://example"}})
+	r := httptest.NewRequest(http.MethodGet, "/sub/public-token?format=json", nil)
+	r.Header.Set("Accept", "text/html")
+	r.Header.Set("User-Agent", "Mozilla/5.0 Chrome/126")
+	r.Header.Set("Sec-Fetch-Dest", "document")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusOK || !strings.HasPrefix(w.Header().Get("Content-Type"), "text/html") {
+		t.Fatalf("browser with ?format=json got %d %q", w.Code, w.Header().Get("Content-Type"))
+	}
+}
+
 func TestSubscriptionPageShowsPerChannelDaysWhenDifferent(t *testing.T) {
 	h := newBrandedHandler(t, &stubService{b: testBundle()}).(*handler)
 	main, cdn := 30, 5
