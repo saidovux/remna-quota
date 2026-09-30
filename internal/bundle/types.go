@@ -159,9 +159,11 @@ type Deleter interface {
 
 // ConfigProvider returns the panel-generated Xray JSON config(s) for a remote
 // user. It is optional; the JSON subscription format uses it to build a single
-// importable configuration with every active part as an outbound.
+// importable configuration with every active part as an outbound. The device is
+// forwarded to the provider because some panels only return the real config when
+// the client's HWID is presented.
 type ConfigProvider interface {
-	ConfigJSON(context.Context, string) ([]byte, error)
+	ConfigJSON(context.Context, string, Device) ([]byte, error)
 }
 
 type RetryError struct {

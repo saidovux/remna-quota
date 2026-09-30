@@ -88,7 +88,7 @@ func (p *fakeProvider) SyncDevices(_ context.Context, _ string, _ Part, _ int, _
 	return nil
 }
 
-func (p *fakeProvider) ConfigJSON(_ context.Context, id string) ([]byte, error) {
+func (p *fakeProvider) ConfigJSON(_ context.Context, id string, _ Device) ([]byte, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if _, ok := p.users[id]; !ok {

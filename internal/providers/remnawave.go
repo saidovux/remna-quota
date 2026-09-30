@@ -340,8 +340,10 @@ func (p *Remnawave) Delete(ctx context.Context, id string) error {
 var shortUUIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
 // ConfigJSON returns the panel-generated Xray JSON configs for one remote user
-// (an array of full configurations, one per host).
-func (p *Remnawave) ConfigJSON(ctx context.Context, id string) ([]byte, error) {
+// (an array of full configurations, one per host). When the account enforces
+// HWID, the device must be forwarded: without it the panel returns a generic
+// "app not supported" placeholder instead of the real hosts.
+func (p *Remnawave) ConfigJSON(ctx context.Context, id string, device bundle.Device) ([]byte, error) {
 	if !validID(id) {
 		return nil, bundle.ErrInvalid
 	}
@@ -352,8 +354,15 @@ func (p *Remnawave) ConfigJSON(ctx context.Context, id string) ([]byte, error) {
 	if !shortUUIDPattern.MatchString(user.ShortUUID) {
 		return nil, bundle.ErrConflict
 	}
+	headers := map[string]string{"User-Agent": "remna-quota/1.0"}
+	if device.HWID != "" {
+		headers["x-hwid"] = device.HWID
+		headers["x-device-os"] = device.Platform
+		headers["x-ver-os"] = device.OSVersion
+		headers["x-device-model"] = device.Model
+	}
 	var raw json.RawMessage
-	if err := p.do(ctx, http.MethodGet, "/api/sub/"+user.ShortUUID+"/json", nil, http.StatusOK, &raw); err != nil {
+	if err := p.doWith(ctx, http.MethodGet, "/api/sub/"+user.ShortUUID+"/json", nil, http.StatusOK, &raw, headers); err != nil {
 		return nil, err
 	}
 	if len(raw) == 0 {
@@ -421,6 +430,10 @@ func (p *Remnawave) mutate(ctx context.Context, method, path string, body any, s
 }
 
 func (p *Remnawave) do(ctx context.Context, method, path string, body any, status int, dst any) error {
+	return p.doWith(ctx, method, path, body, status, dst, nil)
+}
+
+func (p *Remnawave) doWith(ctx context.Context, method, path string, body any, status int, dst any, headers map[string]string) error {
 	var payload io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -449,6 +462,11 @@ func (p *Remnawave) do(ctx context.Context, method, path string, body any, statu
 	}
 	if p.forwardedProto != "" {
 		req.Header.Set("X-Forwarded-Proto", p.forwardedProto)
+	}
+	for key, value := range headers {
+		if value != "" {
+			req.Header.Set(key, value)
+		}
 	}
 	resp, err := p.client.Do(req)
 	if err != nil {

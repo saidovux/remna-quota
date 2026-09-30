@@ -391,3 +391,48 @@ func TestEnsureRejectsIgnoredPanelMutations(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigJSONForwardsDeviceHWID(t *testing.T) {
+	var gotPath, gotHWID string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/api/users/42":
+			_ = json.NewEncoder(w).Encode(map[string]any{"response": map[string]any{
+				"id":                42,
+				"username":          "alice_cdn",
+				"status":            "ACTIVE",
+				"shortUuid":         "short_1",
+				"description":       "remna-quota:owner:cdn",
+				"expireAt":          "2030-01-01T00:00:00.000Z",
+				"trafficLimitBytes": 0,
+				"userTraffic":       map[string]any{"usedTrafficBytes": 0, "lifetimeUsedTrafficBytes": 0},
+			}})
+		case "/api/sub/short_1/json":
+			gotPath = r.URL.Path
+			gotHWID = r.Header.Get("x-hwid")
+			_, _ = w.Write([]byte(`[{"remarks":"real host","outbounds":[{"tag":"proxy","protocol":"vless"}]}]`))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	p, err := NewRemnawave(RemnaConfig{BaseURL: server.URL, APIToken: "test-secret", AllowHTTP: true, Profiles: map[string][]string{"cdn": {testSquad}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := p.ConfigJSON(context.Background(), "42", bundle.Device{HWID: "DEVICE00001", Platform: "Android", OSVersion: "15", Model: "Pixel"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/sub/short_1/json" {
+		t.Fatalf("requested %q", gotPath)
+	}
+	if gotHWID != "DEVICE00001" {
+		t.Fatalf("x-hwid = %q, want DEVICE00001 (config would be a placeholder)", gotHWID)
+	}
+	if !strings.Contains(string(raw), "real host") {
+		t.Fatalf("config not returned: %s", raw)
+	}
+}

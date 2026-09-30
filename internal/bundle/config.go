@@ -28,7 +28,7 @@ func (s *Service) ConfigForJSON(ctx context.Context, snapshot Bundle) ([]byte, e
 	if !b.Enabled || b.TokenHash != snapshot.TokenHash {
 		return nil, ErrNotFound
 	}
-	return s.buildConfig(ctx, b)
+	return s.buildConfig(ctx, b, Device{})
 }
 
 // ConfigForJSONForDevice enforces the shared device limit before building the
@@ -70,10 +70,10 @@ func (s *Service) ConfigForJSONForDevice(ctx context.Context, snapshot Bundle, d
 			}
 		}
 	}
-	return s.buildConfig(ctx, b)
+	return s.buildConfig(ctx, b, device)
 }
 
-func (s *Service) buildConfig(ctx context.Context, b Bundle) ([]byte, error) {
+func (s *Service) buildConfig(ctx context.Context, b Bundle, device Device) ([]byte, error) {
 	now := s.now().UTC()
 	var skeleton map[string]any
 	seen := map[string]bool{}
@@ -90,7 +90,7 @@ func (s *Service) buildConfig(ctx context.Context, b Bundle) ([]byte, error) {
 		if !ok {
 			continue
 		}
-		raw, err := configs.ConfigJSON(ctx, part.Remote.ID)
+		raw, err := configs.ConfigJSON(ctx, part.Remote.ID, device)
 		if err != nil {
 			return nil, err
 		}
