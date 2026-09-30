@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestConfigForJSONMergesPartOutbounds(t *testing.T) {
+func TestConfigForJSONListsEveryHost(t *testing.T) {
 	s, _, req := setupService(t)
 	b := mustPut(t, s, req)
 
@@ -15,18 +15,21 @@ func TestConfigForJSONMergesPartOutbounds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var cfg map[string]any
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		t.Fatalf("result is not a single config: %v", err)
+	var configs []map[string]any
+	if err := json.Unmarshal(raw, &configs); err != nil {
+		t.Fatalf("result is not a config array: %v", err)
 	}
-	outbounds, _ := cfg["outbounds"].([]any)
-	if len(outbounds) != 2 {
-		t.Fatalf("outbounds=%d, want 2 (one per part)", len(outbounds))
+	if len(configs) != 2 {
+		t.Fatalf("configs=%d, want 2 (one per part)", len(configs))
 	}
-	first, _ := outbounds[0].(map[string]any)
-	second, _ := outbounds[1].(map[string]any)
-	if first["tag"] != "proxy" || second["tag"] != "proxy-2" {
-		t.Fatalf("duplicate tags not renamed: %v / %v", first["tag"], second["tag"])
+	for _, config := range configs {
+		outbounds, _ := config["outbounds"].([]any)
+		if len(outbounds) != 1 {
+			t.Fatalf("each host config should keep one proxy outbound, got %d", len(outbounds))
+		}
+		if name, _ := config["remarks"].(string); name == "" {
+			t.Fatalf("config missing remarks: %v", config)
+		}
 	}
 }
 

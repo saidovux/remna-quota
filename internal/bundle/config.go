@@ -3,15 +3,15 @@ package bundle
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"strings"
 	"time"
 )
 
-// ConfigForJSON builds one importable Xray JSON configuration from every active
-// part of the account: the first panel config is the skeleton (dns/routing/
-// inbounds) and all outbounds from every part are merged into it. There is no
-// balancer — the first outbound remains the default route. Traffic accounting is
-// unaffected because each outbound keeps its own user credentials.
+// ConfigForJSON builds the importable Xray JSON subscription for an account.
+// Like the panel, the result is an ARRAY of complete configurations, one per
+// host, so clients list every node (regular VPN and CDN) instead of showing only
+// the first outbound of a single merged config. There is no balancer. Traffic
+// accounting is unaffected because each outbound keeps its own credentials.
 func (s *Service) ConfigForJSON(ctx context.Context, snapshot Bundle) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -75,9 +75,7 @@ func (s *Service) ConfigForJSONForDevice(ctx context.Context, snapshot Bundle, d
 
 func (s *Service) buildConfig(ctx context.Context, b Bundle, device Device) ([]byte, error) {
 	now := s.now().UTC()
-	var skeleton map[string]any
-	seen := map[string]bool{}
-	outbounds := []any{}
+	configs := []map[string]any{}
 	for _, part := range b.Parts {
 		if !part.Enabled || part.Remote == nil || part.Remote.ID == "" {
 			continue
@@ -86,11 +84,11 @@ func (s *Service) buildConfig(ctx context.Context, b Bundle, device Device) ([]b
 			continue
 		}
 		provider := s.providers[part.Provider]
-		configs, ok := provider.(ConfigProvider)
+		configsProvider, ok := provider.(ConfigProvider)
 		if !ok {
 			continue
 		}
-		raw, err := configs.ConfigJSON(ctx, part.Remote.ID, device)
+		raw, err := configsProvider.ConfigJSON(ctx, part.Remote.ID, device)
 		if err != nil {
 			return nil, err
 		}
@@ -98,33 +96,18 @@ func (s *Service) buildConfig(ctx context.Context, b Bundle, device Device) ([]b
 		if err := json.Unmarshal(raw, &parsed); err != nil {
 			continue
 		}
-		for _, cfg := range parsed {
-			list, _ := cfg["outbounds"].([]any)
-			for _, entry := range list {
-				if object, ok := entry.(map[string]any); ok {
-					tag, _ := object["tag"].(string)
-					if tag == "" {
-						tag = "proxy"
-					}
-					if seen[tag] {
-						n := 2
-						for seen[fmt.Sprintf("%s-%d", tag, n)] {
-							n++
-						}
-						object["tag"] = fmt.Sprintf("%s-%d", tag, n)
-					}
-					seen[object["tag"].(string)] = true
-				}
-				outbounds = append(outbounds, entry)
+		for _, config := range parsed {
+			if _, ok := config["outbounds"]; !ok {
+				continue
 			}
-			if skeleton == nil {
-				skeleton = cfg
+			if name, _ := config["remarks"].(string); strings.TrimSpace(name) == "" {
+				config["remarks"] = part.Label
 			}
+			configs = append(configs, config)
 		}
 	}
-	if skeleton == nil || len(outbounds) == 0 {
+	if len(configs) == 0 {
 		return nil, ErrUnavailable
 	}
-	skeleton["outbounds"] = outbounds
-	return json.Marshal(skeleton)
+	return json.Marshal(configs)
 }
