@@ -327,8 +327,13 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	format := r.URL.Query().Get("format")
+	inferredJSON := false
 	if format == "" {
-		format = "base64"
+		if wantsJSONSubscription(r) {
+			format, inferredJSON = "json", true
+		} else {
+			format = "base64"
+		}
 	}
 	if format != "base64" && format != "plain" && format != "json" {
 		writeError(w, http.StatusBadRequest, "unsupported_format")
@@ -366,38 +371,12 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 	}
 	h.applySubscriptionHeaders(w, token, h.accountResponse(b).Parts)
 	if format == "json" {
-		if bundle.DeviceLimit(b) > 0 {
-			w.Header().Set("x-hwid-active", "true")
-		}
-		device := bundle.Device{HWID: r.Header.Get("x-hwid"), Platform: r.Header.Get("x-device-os"), OSVersion: r.Header.Get("x-ver-os"), Model: r.Header.Get("x-device-model"), UserAgent: r.UserAgent()}
-		var config []byte
-		var configErr error
-		if deviceJSON, ok := h.service.(configDeviceService); ok {
-			config, configErr = deviceJSON.ConfigForJSONForDevice(r.Context(), b, device)
-		} else if bundle.DeviceLimit(b) > 0 {
-			configErr = bundle.ErrUnavailable
-		} else {
-			config, configErr = h.service.ConfigForJSON(r.Context(), b)
-		}
-		if configErr != nil {
-			if errors.Is(configErr, bundle.ErrHWIDRequired) {
-				w.Header().Set("x-hwid-not-supported", "true")
-				writeError(w, 403, "hwid_required")
-				return
-			}
-			if errors.Is(configErr, bundle.ErrDeviceLimit) {
-				w.Header().Set("x-hwid-max-devices-reached", "true")
-				w.Header().Set("x-hwid-limit", "true")
-				writeError(w, 403, "device_limit_reached")
-				return
-			}
-			serviceError(w, configErr)
+		if h.writeJSONConfig(w, r, b, inferredJSON) {
 			return
 		}
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(config)
-		return
+		// A client that prefers JSON but cannot use it right now (missing HWID,
+		// provider without JSON support) still receives the link list.
+		format = "base64"
 	}
 	var links []string
 	if deviceService, ok := h.service.(deviceService); ok {
@@ -427,6 +406,46 @@ func (h *handler) subscription(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.writeSubscription(w, links, format)
+}
+
+// writeJSONConfig serves the merged Xray JSON configuration. It returns false
+// when the caller should fall back to the link list (only for clients that were
+// auto-detected as JSON-capable).
+func (h *handler) writeJSONConfig(w http.ResponseWriter, r *http.Request, b bundle.Bundle, fallback bool) bool {
+	if bundle.DeviceLimit(b) > 0 {
+		w.Header().Set("x-hwid-active", "true")
+	}
+	device := bundle.Device{HWID: r.Header.Get("x-hwid"), Platform: r.Header.Get("x-device-os"), OSVersion: r.Header.Get("x-ver-os"), Model: r.Header.Get("x-device-model"), UserAgent: r.UserAgent()}
+	var config []byte
+	var err error
+	if deviceJSON, ok := h.service.(configDeviceService); ok {
+		config, err = deviceJSON.ConfigForJSONForDevice(r.Context(), b, device)
+	} else if bundle.DeviceLimit(b) > 0 {
+		err = bundle.ErrUnavailable
+	} else {
+		config, err = h.service.ConfigForJSON(r.Context(), b)
+	}
+	if err == nil {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(config)
+		return true
+	}
+	if fallback {
+		return false
+	}
+	switch {
+	case errors.Is(err, bundle.ErrHWIDRequired):
+		w.Header().Set("x-hwid-not-supported", "true")
+		writeError(w, http.StatusForbidden, "hwid_required")
+	case errors.Is(err, bundle.ErrDeviceLimit):
+		w.Header().Set("x-hwid-max-devices-reached", "true")
+		w.Header().Set("x-hwid-limit", "true")
+		writeError(w, http.StatusForbidden, "device_limit_reached")
+	default:
+		serviceError(w, err)
+	}
+	return true
 }
 
 func (h *handler) writeSubscription(w http.ResponseWriter, links []string, format string) {

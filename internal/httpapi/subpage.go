@@ -129,6 +129,33 @@ func isClientUserAgent(userAgent string) bool {
 	return false
 }
 
+// jsonClientUserAgentTokens identify clients that import an Xray JSON
+// configuration. They receive the merged JSON automatically, without the user
+// having to append ?format=json.
+var jsonClientUserAgentTokens = []string{
+	"incy", "incx", "happ", "karing", "fozinet", "v2box", "streisand", "nekoray",
+}
+
+// wantsJSONSubscription reports whether a client should receive the JSON config
+// by default (instead of the base64 link list).
+func wantsJSONSubscription(r *http.Request) bool {
+	if isJSONClientUserAgent(r.UserAgent()) {
+		return true
+	}
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	return strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html")
+}
+
+func isJSONClientUserAgent(userAgent string) bool {
+	lower := strings.ToLower(userAgent)
+	for _, token := range jsonClientUserAgentTokens {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *handler) subscriptionPage(w http.ResponseWriter, r *http.Request, token string) {
 	ctx := r.Context()
 	if h.service != nil {

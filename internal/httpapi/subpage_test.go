@@ -101,6 +101,42 @@ func TestBrowserAlwaysGetsPageEvenWithFormat(t *testing.T) {
 	}
 }
 
+func TestSubscriptionAutoJSONForJSONClients(t *testing.T) {
+	h := newBrandedHandler(t, &stubService{b: testBundle(), links: []string{"vless://example"}})
+
+	incy := httptest.NewRequest(http.MethodGet, "/sub/public-token", nil)
+	incy.Header.Set("User-Agent", "INCY/3.7.0/android")
+	incyRec := httptest.NewRecorder()
+	h.ServeHTTP(incyRec, incy)
+	if !strings.HasPrefix(incyRec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("Incy should receive JSON automatically, got %q", incyRec.Header().Get("Content-Type"))
+	}
+
+	accept := httptest.NewRequest(http.MethodGet, "/sub/public-token", nil)
+	accept.Header.Set("Accept", "application/json")
+	acceptRec := httptest.NewRecorder()
+	h.ServeHTTP(acceptRec, accept)
+	if !strings.HasPrefix(acceptRec.Header().Get("Content-Type"), "application/json") {
+		t.Fatalf("Accept: application/json should receive JSON, got %q", acceptRec.Header().Get("Content-Type"))
+	}
+
+	legacy := httptest.NewRequest(http.MethodGet, "/sub/public-token", nil)
+	legacy.Header.Set("User-Agent", "v2rayNG/1.8")
+	legacyRec := httptest.NewRecorder()
+	h.ServeHTTP(legacyRec, legacy)
+	if !strings.HasPrefix(legacyRec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("v2rayNG should keep the base64 list, got %q", legacyRec.Header().Get("Content-Type"))
+	}
+
+	explicit := httptest.NewRequest(http.MethodGet, "/sub/public-token?format=base64", nil)
+	explicit.Header.Set("User-Agent", "INCY/3.7.0/android")
+	explicitRec := httptest.NewRecorder()
+	h.ServeHTTP(explicitRec, explicit)
+	if !strings.HasPrefix(explicitRec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("explicit ?format=base64 must win, got %q", explicitRec.Header().Get("Content-Type"))
+	}
+}
+
 func TestSubscriptionPageShowsPerChannelDaysWhenDifferent(t *testing.T) {
 	h := newBrandedHandler(t, &stubService{b: testBundle()}).(*handler)
 	main, cdn := 30, 5
