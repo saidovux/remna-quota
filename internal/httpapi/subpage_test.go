@@ -30,6 +30,9 @@ func TestSubscriptionPageRendersForBrowsers(t *testing.T) {
 	h := newBrandedHandler(t, &stubService{b: testBundle()})
 	r := httptest.NewRequest(http.MethodGet, "/sub/public-token", nil)
 	r.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9")
+	r.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36")
+	r.Header.Set("Sec-Fetch-Dest", "document")
+	r.Header.Set("Sec-Fetch-Mode", "navigate")
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 
@@ -149,21 +152,34 @@ func TestDaysPresentationKeepsEveryChannel(t *testing.T) {
 
 func TestWantsSubscriptionPage(t *testing.T) {
 	cases := []struct {
-		name   string
-		accept string
-		hwid   string
-		want   bool
+		name          string
+		accept        string
+		userAgent     string
+		hwid          string
+		secFetchDest  string
+		upgradeHeader string
+		want          bool
 	}{
-		{"browser", "text/html,application/xhtml+xml", "", true},
-		{"client wildcard", "*/*", "", false},
-		{"explicit json", "application/json", "", false},
-		{"client with hwid", "text/html", "device-1", false},
+		{"browser navigation", "text/html,application/xhtml+xml", "Mozilla/5.0 Firefox/128", "", "document", "1", true},
+		{"legacy browser", "text/html", "Mozilla/5.0 (Windows NT 6.1)", "", "", "1", true},
+		{"client wildcard", "*/*", "v2rayNG/1.8", "", "", "", false},
+		{"explicit json", "application/json", "Mozilla/5.0", "", "document", "1", false},
+		{"client with hwid", "text/html", "Mozilla/5.0", "device-1", "document", "1", false},
+		{"client html webview", "text/html,application/xhtml+xml", "INCY/3.7.0/android", "", "", "", false},
+		{"html but not a navigation", "text/html", "UnknownBot/1.0", "", "", "", false},
 	}
 	for _, tc := range cases {
 		r := httptest.NewRequest(http.MethodGet, "/sub/x", nil)
 		r.Header.Set("Accept", tc.accept)
+		r.Header.Set("User-Agent", tc.userAgent)
 		if tc.hwid != "" {
 			r.Header.Set("x-hwid", tc.hwid)
+		}
+		if tc.secFetchDest != "" {
+			r.Header.Set("Sec-Fetch-Dest", tc.secFetchDest)
+		}
+		if tc.upgradeHeader != "" {
+			r.Header.Set("Upgrade-Insecure-Requests", tc.upgradeHeader)
 		}
 		if got := wantsSubscriptionPage(r); got != tc.want {
 			t.Fatalf("%s: got %v want %v", tc.name, got, tc.want)

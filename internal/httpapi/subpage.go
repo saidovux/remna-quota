@@ -88,19 +88,45 @@ func daysPresentation(entries []partDaysEntry) (uniform bool, days int, text str
 	return false, 0, strings.Join(parts, ", "), entries
 }
 
-// wantsSubscriptionPage reports whether a request looks like a browser opening
-// the subscription link rather than a VPN client downloading a config. It is
-// deliberately conservative: clients that send an HWID or accept non-HTML keep
-// receiving the config.
+// wantsSubscriptionPage reports whether a request is a real browser navigation
+// to the subscription link rather than a VPN client downloading a config. Many
+// clients (e.g. Incy's WebView) send an HTML Accept header, so we additionally
+// require navigation metadata (Sec-Fetch-*) or a legacy browser hint.
 func wantsSubscriptionPage(r *http.Request) bool {
 	if r.Header.Get("x-hwid") != "" {
 		return false
 	}
-	accept := r.Header.Get("Accept")
-	if !strings.Contains(accept, "text/html") {
+	accept := strings.ToLower(r.Header.Get("Accept"))
+	if !strings.Contains(accept, "text/html") || strings.Contains(accept, "application/json") {
 		return false
 	}
-	return !strings.Contains(strings.ToLower(accept), "application/json")
+	if isClientUserAgent(r.UserAgent()) {
+		return false
+	}
+	if r.Header.Get("Sec-Fetch-Dest") == "document" || r.Header.Get("Sec-Fetch-Mode") == "navigate" {
+		return true
+	}
+	// Legacy browsers without Fetch Metadata: require an explicit navigation hint.
+	return strings.Contains(r.Header.Get("Upgrade-Insecure-Requests"), "1") && strings.HasPrefix(r.UserAgent(), "Mozilla/")
+}
+
+// clientUserAgentTokens are substrings that identify VPN clients which must never
+// be served the HTML page, even if they advertise an HTML Accept header.
+var clientUserAgentTokens = []string{
+	"incy", "incx", "v2ray", "v2fly", "xray", "hiddify", "sing-box", "singbox",
+	"clash", "mihomo", "shadowrocket", "stash", "quantumult", "loon", "surge",
+	"streisand", "nekobox", "nekoray", "outline", "wireguard", "openvpn",
+	"shadowsocks", "ssr", "trojan", "karing", "fozinet", "happ", "v2box",
+}
+
+func isClientUserAgent(userAgent string) bool {
+	lower := strings.ToLower(userAgent)
+	for _, token := range clientUserAgentTokens {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
 }
 
 func (h *handler) subscriptionPage(w http.ResponseWriter, r *http.Request, token string) {
