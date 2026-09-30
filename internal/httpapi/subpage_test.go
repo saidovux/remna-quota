@@ -84,6 +84,32 @@ func TestSubscriptionUserInfoOnlyForCappedParts(t *testing.T) {
 	}
 }
 
+func TestSubscriptionPageShowsPerChannelDaysWhenDifferent(t *testing.T) {
+	h := newBrandedHandler(t, &stubService{b: testBundle()}).(*handler)
+	main, cdn := 30, 5
+	resp := accountResponse{
+		Name: "Основной", Status: "active",
+		Parts: []partResponse{
+			{Key: "main", Label: "Обычный VPN", Enabled: true, Status: "active", LimitBytes: 200 << 30, UsedBytes: int64Ptr(0), ExpiresAt: time.Now().Add(30 * 24 * time.Hour), DaysLeft: &main},
+			{Key: "cdn", Label: "CDN", Enabled: true, Status: "active", LimitBytes: 50 << 30, UsedBytes: int64Ptr(0), ExpiresAt: time.Now().Add(5 * 24 * time.Hour), DaysLeft: &cdn},
+		},
+	}
+	data := h.subscriptionPageData(resp, "public-token")
+	if data.DaysUniform {
+		t.Fatal("differing expiries must not collapse into one number")
+	}
+	w := httptest.NewRecorder()
+	h.renderSubscriptionPage(w, data)
+	body := w.Body.String()
+	for _, want := range []string{"Осталось по каналам", "Обычный VPN 30 дн.", "CDN 5 дн."} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("page missing %q", want)
+		}
+	}
+}
+
+func int64Ptr(v int64) *int64 { return &v }
+
 func TestDaysLeftRoundsPartialDayUp(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -104,11 +130,20 @@ func TestDaysLeftRoundsPartialDayUp(t *testing.T) {
 	}
 }
 
-func TestMaxDaysLeftUsesLatestChannel(t *testing.T) {
-	short, long := 5, 40
-	parts := []partResponse{{DaysLeft: &short}, {DaysLeft: &long}}
-	if got := maxDaysLeft(parts); got != 40 {
-		t.Fatalf("maxDaysLeft = %d, want 40 (latest channel wins)", got)
+func TestDaysPresentationKeepsEveryChannel(t *testing.T) {
+	uniform, days, text, list := daysPresentation([]partDaysEntry{{Label: "Обычный VPN", Days: 30}, {Label: "CDN", Days: 30}})
+	if !uniform || days != 30 || text != "30" || list != nil {
+		t.Fatalf("uniform case: uniform=%v days=%d text=%q list=%v", uniform, days, text, list)
+	}
+	uniform, _, text, list = daysPresentation([]partDaysEntry{{Label: "Обычный VPN", Days: 30}, {Label: "CDN", Days: 5}})
+	if uniform {
+		t.Fatal("differing channels must not collapse to one number")
+	}
+	if !strings.Contains(text, "Обычный VPN 30 дн.") || !strings.Contains(text, "CDN 5 дн.") {
+		t.Fatalf("unexpected combined text %q", text)
+	}
+	if len(list) != 2 {
+		t.Fatalf("both channels must stay, got %d", len(list))
 	}
 }
 

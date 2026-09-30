@@ -28,7 +28,14 @@ type subpagePart struct {
 	RemainingHuman string
 	ExpiresHuman   string
 	Percent        int
+	DaysLeft       int
+	HasDays        bool
 	Unlimited      bool
+}
+
+type partDaysEntry struct {
+	Label string
+	Days  int
 }
 
 type subpageData struct {
@@ -42,6 +49,9 @@ type subpageData struct {
 	UsedHuman        string
 	TotalHuman       string
 	DaysLeft         int
+	DaysText         string
+	DaysUniform      bool
+	PartDays         []partDaysEntry
 	Percent          int
 	HasTraffic       bool
 	Parts            []subpagePart
@@ -51,6 +61,31 @@ type subpageData struct {
 	SupportURL       string
 	UsedBytes        int64
 	TotalBytes       int64
+}
+
+// daysPresentation summarizes remaining days across channels. When every channel
+// shares one expiry it returns a single number; otherwise it keeps all channels
+// so a shorter period is not hidden by a longer one.
+func daysPresentation(entries []partDaysEntry) (uniform bool, days int, text string, list []partDaysEntry) {
+	if len(entries) == 0 {
+		return true, 0, "0", nil
+	}
+	first := entries[0].Days
+	same := true
+	for _, entry := range entries {
+		if entry.Days != first {
+			same = false
+			break
+		}
+	}
+	if same {
+		return true, first, strconv.Itoa(first), nil
+	}
+	parts := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		parts = append(parts, fmt.Sprintf("%s %d дн.", entry.Label, entry.Days))
+	}
+	return false, 0, strings.Join(parts, ", "), entries
 }
 
 // wantsSubscriptionPage reports whether a request looks like a browser opening
@@ -107,6 +142,7 @@ func (h *handler) subscriptionPageData(a accountResponse, token string) subpageD
 		data.PlanName = h.brandName
 	}
 	data.StatusLabel, data.StatusClass = statusPresentation(a.Status)
+	var entries []partDaysEntry
 	for _, part := range a.Parts {
 		if !part.Enabled {
 			continue
@@ -141,6 +177,11 @@ func (h *handler) subscriptionPageData(a accountResponse, token string) subpageD
 			}
 			item.RemainingHuman = humanBytes(remaining)
 		}
+		if part.DaysLeft != nil {
+			item.HasDays = true
+			item.DaysLeft = *part.DaysLeft
+			entries = append(entries, partDaysEntry{Label: item.Label, Days: *part.DaysLeft})
+		}
 		if !part.ExpiresAt.IsZero() && part.ExpiresAt.After(time.Now()) {
 			item.ExpiresHuman = part.ExpiresAt.UTC().Format("02.01.2006")
 		}
@@ -149,10 +190,8 @@ func (h *handler) subscriptionPageData(a accountResponse, token string) subpageD
 			data.TotalBytes += part.LimitBytes
 		}
 		data.UsedBytes += used
-		if part.DaysLeft != nil && *part.DaysLeft > data.DaysLeft {
-			data.DaysLeft = *part.DaysLeft
-		}
 	}
+	data.DaysUniform, data.DaysLeft, data.DaysText, data.PartDays = daysPresentation(entries)
 	if data.TotalBytes > 0 {
 		data.HasTraffic = true
 		data.TotalHuman = humanBytes(data.TotalBytes)
@@ -183,6 +222,7 @@ func (h *handler) aggregatePageData(b aggregate.Bundle, token string) subpageDat
 	} else {
 		data.StatusLabel, data.StatusClass = "Активна", ""
 	}
+	var entries []partDaysEntry
 	for _, source := range b.Sources {
 		if !source.Enabled {
 			continue
@@ -206,17 +246,15 @@ func (h *handler) aggregatePageData(b aggregate.Bundle, token string) subpageDat
 				}
 			}
 			days := daysLeftUntil(source.Snapshot.ExpiresAt)
-			if days < 0 {
-				days = 0
-			}
-			if days > data.DaysLeft {
-				data.DaysLeft = days
-			}
+			item.HasDays = true
+			item.DaysLeft = days
+			entries = append(entries, partDaysEntry{Label: item.Label, Days: days})
 			data.UsedBytes += source.Snapshot.UsedBytes
 			data.TotalBytes += source.Snapshot.LimitBytes
 		}
 		data.Parts = append(data.Parts, item)
 	}
+	data.DaysUniform, data.DaysLeft, data.DaysText, data.PartDays = daysPresentation(entries)
 	if data.TotalBytes > 0 {
 		data.HasTraffic = true
 		data.TotalHuman = humanBytes(data.TotalBytes)
@@ -242,7 +280,14 @@ func (h *handler) applySubscriptionHeaders(w http.ResponseWriter, token string, 
 		w.Header().Set("profile-description", encodeHeaderValue(h.brandDescription))
 	}
 	if h.brandAnnounce != "" {
-		announce := strings.ReplaceAll(h.brandAnnounce, "{days}", strconv.Itoa(maxDaysLeft(parts)))
+		entries := make([]partDaysEntry, 0, len(parts))
+		for _, part := range parts {
+			if part.Enabled && part.DaysLeft != nil {
+				entries = append(entries, partDaysEntry{Label: part.Label, Days: *part.DaysLeft})
+			}
+		}
+		_, _, text, _ := daysPresentation(entries)
+		announce := strings.ReplaceAll(h.brandAnnounce, "{days}", text)
 		w.Header().Set("announce", encodeHeaderValue(announce))
 	}
 	if h.brandHomeURL != "" {
@@ -254,16 +299,6 @@ func (h *handler) applySubscriptionHeaders(w http.ResponseWriter, token string, 
 	if info, ok := subscriptionUserInfo(parts); ok {
 		w.Header().Set("subscription-userinfo", info)
 	}
-}
-
-func maxDaysLeft(parts []partResponse) int {
-	days := 0
-	for _, part := range parts {
-		if part.DaysLeft != nil && *part.DaysLeft > days {
-			days = *part.DaysLeft
-		}
-	}
-	return days
 }
 
 func (h *handler) applyAggregateHeaders(w http.ResponseWriter, token string, b aggregate.Bundle) {

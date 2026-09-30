@@ -59,12 +59,16 @@ footer a{color:var(--accent);text-decoration:none}
       </div>
       <span class="pill {{.StatusClass}}"><span class="dot"></span>{{.StatusLabel}}</span>
     </div>
-    {{if .HasTraffic}}
+    {{if .Parts}}
     <div class="res" style="margin-top:18px">
-      <div class="kv"><div class="k">Потрачено</div><div class="v">{{.UsedHuman}} <span class="muted" style="font-size:13px;font-weight:600">/ {{.TotalHuman}}</span></div></div>
+      {{if .HasTraffic}}<div class="kv"><div class="k">Потрачено</div><div class="v">{{.UsedHuman}} <span class="muted" style="font-size:13px;font-weight:600">/ {{.TotalHuman}}</span></div></div>{{end}}
+      {{if .DaysUniform}}
       <div class="kv"><div class="k">Осталось дней</div><div class="v">{{.DaysLeft}}</div></div>
+      {{else}}
+      <div class="kv"><div class="k">Осталось по каналам</div><div class="v" style="font-size:15px;line-height:1.5">{{.DaysText}}</div></div>
+      {{end}}
     </div>
-    <div class="bar"><i style="width:{{.Percent}}%"></i></div>
+    {{if .HasTraffic}}<div class="bar"><i style="width:{{.Percent}}%"></i></div>{{end}}
     {{end}}
   </div>
 
@@ -73,7 +77,7 @@ footer a{color:var(--accent);text-decoration:none}
     <h2>Трафик по каналам</h2>
     {{range .Parts}}
     <div class="part">
-      <div class="top"><div><strong>{{.Label}}</strong>{{if .Hint}}<div class="hint">{{.Hint}}</div>{{end}}</div><span class="muted">{{.StatusLabel}}{{if .ExpiresHuman}} · до {{.ExpiresHuman}}{{end}}</span></div>
+      <div class="top"><div><strong>{{.Label}}</strong>{{if .Hint}}<div class="hint">{{.Hint}}</div>{{end}}</div><span class="muted">{{.StatusLabel}}{{if .HasDays}} · осталось {{.DaysLeft}} дн.{{end}}{{if .ExpiresHuman}} · до {{.ExpiresHuman}}{{end}}</span></div>
       <div class="bar"><i style="width:{{.Percent}}%"></i></div>
       <div class="metrics">
         <span>Потрачено: <b>{{.UsedHuman}}</b></span>
